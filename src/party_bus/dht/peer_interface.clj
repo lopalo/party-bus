@@ -2,9 +2,8 @@
   (:require [manifold
              [deferred :as md]
              [stream :as ms]]
-            party-bus.dht.core)
-  (:import [java.net InetSocketAddress]
-           [party_bus.dht.core
+            [party-bus.dht.core :refer [terminated terminated-error]])
+  (:import [party_bus.dht.core
             PeerContainer
             Curator
             Period]))
@@ -22,24 +21,24 @@
   (terminate [this]))
 
 (defn- terminated-error! []
-  (throw (ex-info "Peer is terminated" {::reason ::terminated})))
+  (throw terminated-error))
 
 (defn peer-interface
-  [^Curator curator ^InetSocketAddress address ^PeerContainer peer]
+  [^Curator curator address ^PeerContainer peer]
   (reify PeerInterface
     (get-address [this]
       address)
 
     (get-state [this]
       (let [state @(.state peer)]
-        (if (= state ::terminated)
+        (if (= state terminated)
           (terminated-error!)
           state)))
 
     (update-state [this f]
       (let [new-state (swap! (.state peer)
-                             #(if (= % ::terminated) % (f %)))]
-        (if (= new-state ::terminated)
+                             #(if (= % terminated) % (f %)))]
+        (if (= new-state terminated)
           (terminated-error!)
           new-state)))
 
@@ -71,3 +70,6 @@
 
     (terminate [this]
       (-> peer .sock-stream ms/close!))))
+
+(defn update-state-in [p path f & args]
+  (update-state p #(apply update-in % path f args)))

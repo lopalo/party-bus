@@ -4,9 +4,13 @@
              [deferred :as md :refer [let-flow]]
              [stream :as ms]]
             [aleph.udp :as udp]
+            [gloss.io :refer [encode decode]]
+            [party-bus.utils :refer [socket-address]]
             [party-bus.dht
              [curator :as c]
-             [peer-interface :as p]])
+             [peer-interface :as p]
+             [peer :as peer]
+             [codec :as codec]])
   (:import [party_bus.dht.core Period Init Terminate]))
 
 (defn udp-socket [port]
@@ -20,7 +24,7 @@
   ([socket remote-port message]
    @(ms/put! socket {:host "127.0.0.1"
                      :port remote-port
-                     :message message})))
+                     :message (encode codec/message message)})))
 
 (def curator (c/create-curator 2 nil prn))
 
@@ -29,7 +33,15 @@
     (md/chain
      (c/create-peer
       curator "127.0.0.1" port
-      #(prn (format "Peer %s: %s" (.getPort (p/get-address %1)) %2))
+      (fn [p {:keys [sender message] :as input}]
+        (let [port (.getPort (p/get-address p))]
+          (prn
+           (if sender
+             (format "Peer %s receives from %s: %s"
+                     port
+                     (.getPort sender)
+                     (decode codec/message message))
+             (format "Peer %s: %s" port input)))))
       {})
      #(.getPort %))
     #(clojure.stacktrace/print-stack-trace %)))
@@ -62,12 +74,20 @@
   (do
     (def echo-p (create-echo-peer 0))
     (def s (udp-socket 47555))
-    (udp-send s echo-p "A")
-    (udp-send s echo-p "B")
-    (udp-send s echo-p "C")
-    (c/terminate-peer curator (c/socket-address echo-p))
+    (udp-send s echo-p {:type :ping})
+    (udp-send s echo-p {:type :pong
+                        :contacts [(socket-address "88.1.111.2" 6666)
+                                   (socket-address "88.2.211.2" 7777)]})
+    (c/terminate-peer curator (socket-address echo-p))
     (Thread/sleep 200)
     (udp-send echo-p ">!!!<"))
   (do
     (def timer-p (create-timer-peer 0))
-    (c/terminate-peer curator (c/socket-address timer-p))))
+    (c/terminate-peer curator (socket-address timer-p)))
+  (do
+    (def p1 @(peer/create-peer curator "127.0.0.1" 0 []))
+    (def p2 @(peer/create-peer curator "127.0.0.1" 0 [p1]))
+    (def p3 @(peer/create-peer curator "127.0.0.1" 0 [p2]))
+    (def p4 @(peer/create-peer curator "127.0.0.1" 0 [p1]))
+    (c/control-command curator p4 :put {:key "abc" :value "THE VALUE!!!"})
+    (c/control-command curator p3 :get {:key "abc"})))

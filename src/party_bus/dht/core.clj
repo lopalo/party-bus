@@ -10,6 +10,11 @@
                           interface])
 
 (defrecord Period [id])
+(defrecord ControlCommand [cmd args])
 (defrecord Init [])
 (defrecord Terminate [])
 
+(def terminated ::terminated)
+
+(def terminated-error
+  (ex-info "Peer is terminated" {:reason terminated}))

@@ -5,13 +5,14 @@
              [deferred :as md :refer [let-flow]]
              [stream :as ms]]
             [aleph.udp :refer [socket]]
-            party-bus.dht.core
+            [party-bus.utils :refer [socket-address]]
+            [party-bus.dht.core :refer [terminated terminated-error]]
             [party-bus.dht.peer-interface :refer [peer-interface]])
-  (:import [java.net InetSocketAddress]
-           [io.netty.channel.epoll EpollDatagramChannel]
+  (:import [io.netty.channel.epoll EpollDatagramChannel]
            [party_bus.dht.core
             Curator
             PeerContainer
+            ControlCommand
             Init
             Terminate]))
 
@@ -23,13 +24,6 @@
   (Curator. (fixed-thread-executor num-threads executor-options)
             (atom {})
             exception-logger))
-
-(defn socket-address
-  ([^long port] (socket-address "127.0.0.1" port))
-  ([^String host ^long port] (InetSocketAddress. host port)))
-
-(defn host-port [^InetSocketAddress address]
-  [(.getHostString address) (.getPort address)])
 
 (defn create-peer [^Curator curator host port handler initial-state]
   (let-flow [{:keys [executor peers exception-logger]} curator
@@ -46,18 +40,23 @@
              period-streams (atom {})
              deferreds (atom #{})
              state (atom initial-state)
-             ex-handler (fn [e]
-                          (when-not (= (-> e ex-data ::reason) ::terminated)
+             ex-handler (fn [e consume-ex?]
+                          (when-not (= (-> e ex-data :reason) terminated)
                             (exception-logger e)
-                            (ms/close! sock-stream)))
-             handler (fn [x]
-                       (when-some [^PeerContainer peer (@peers address)]
-                         (try
-                           (md/catch
-                            (md/chain (handler (.interface peer) x))
-                            ex-handler)
-                           (catch Throwable e
-                             (ex-handler e)))))
+                            (ms/close! sock-stream))
+                          (when-not consume-ex?
+                            (md/error-deferred e executor)))
+             handler (fn h
+                       ([x]
+                        (h x true))
+                       ([x consume-ex?]
+                        (when-some [^PeerContainer peer (@peers address)]
+                          (try
+                            (md/catch
+                             (md/chain (handler (.interface peer) x))
+                             #(ex-handler % consume-ex?))
+                            (catch Throwable e
+                              (ex-handler e consume-ex?))))))
              peer (PeerContainer. sock-stream
                                   period-streams
                                   deferreds
@@ -84,14 +83,19 @@
          (doseq [ps (-> period-streams (deref-reset! nil) vals)]
            (ms/close! ps))
          (doseq [d (deref-reset! deferreds nil)]
-           (md/error! d ::terminated))
-         (reset! state ::terminated))))))
+           (md/error! d terminated-error))
+         (reset! state terminated))))))
 
-(defn terminate-peer [^Curator curator address]
-  (some-> curator
-          .peers
-          deref
-          ^PeerContainer (get address)
+(defn- get-peer ^PeerContainer [^Curator curator address]
+  (some-> curator .peers deref (get address)))
+
+(defn control-command [curator address cmd args]
+  (some-> (get-peer curator address)
+          .handler
+          (apply [(ControlCommand. cmd args) false])))
+
+(defn terminate-peer [curator address]
+  (some-> (get-peer curator address)
           .sock-stream
           ms/close!))
 
