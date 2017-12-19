@@ -72,4 +72,4 @@
       (-> peer .sock-stream ms/close!))))
 
 (defn update-state-in [p path f & args]
-  (update-state p #(apply update-in % path f args)))
+  (get-in (update-state p #(apply update-in % path f args)) path))

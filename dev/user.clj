@@ -89,5 +89,9 @@
     (def p2 @(peer/create-peer curator "127.0.0.1" 0 [p1]))
     (def p3 @(peer/create-peer curator "127.0.0.1" 0 [p2]))
     (def p4 @(peer/create-peer curator "127.0.0.1" 0 [p1]))
-    (c/control-command curator p4 :put {:key "abc" :value "THE VALUE!!!"})
-    (c/control-command curator p3 :get {:key "abc"})))
+    (deref (c/control-command curator p4 :put {:key "abc"
+                                               :value "THE VALUE!!!"
+                                               :ttl 10000
+                                               :trace? true}))
+    (deref (c/control-command curator p3 :get {:key "abc"})))
+  (c/terminate-all-peers curator))
