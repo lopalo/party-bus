@@ -93,5 +93,6 @@
                                                :value "THE VALUE!!!"
                                                :ttl 10000
                                                :trace? true}))
-    (deref (c/control-command curator p3 :get {:key "abc"})))
+    (prn (deref (c/control-command curator p3 :get {:key "abc"
+                                                    :trace? true}))))
   (c/terminate-all-peers curator))

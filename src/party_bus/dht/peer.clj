@@ -4,7 +4,11 @@
             [manifold.deferred :as md :refer [let-flow]]
             [party-bus.utils :as u]
             [party-bus.dht
-             [peer-interface :as p]
+             [peer-interface :as p :refer [get-address
+                                           get-state
+                                           update-state-in
+                                           create-period
+                                           create-deferred]]
              [curator :as curator]
              [codec :as codec]])
   (:import [aleph.udp UdpPacket]
@@ -16,9 +20,8 @@
               :ttl 5000}
    :storage {:max-ttl 3600000
              :default-ttl 600000
-             ;TODO: deleting expired keys from data and expiration maps
              :expired-cleanup-period 1000}
-   :lookup-timeout 2000})
+   :request-timeout 2000})
 
 (defn- send-to [p receiver msg]
   (p/send-to p receiver (encode codec/message msg)))
@@ -27,7 +30,7 @@
   (+ (u/now-ms) (get-in options [:contacts :ttl])))
 
 (defn- alive-contacts [p]
-  (-> (p/get-state p)
+  (-> (get-state p)
       :contacts
       (u/idx-search >= (u/now-ms))))
 
@@ -40,27 +43,22 @@
 (defn- nearest-address [p hash-val]
   (apply min-key
          (partial distance hash-val)
-         (-> p alive-contacts (conj (p/get-address p)))))
+         (-> p alive-contacts (conj (get-address p)))))
 
 (defn- create-request [p]
-  (let [d (p/create-deferred p)
-        req-id (p/update-state-in p [:request-count] inc)]
-    (p/update-state-in p [:requests] assoc req-id d)
-    (md/finally d #(p/update-state-in p [:requests] dissoc req-id))
+  (let [d (create-deferred p)
+        req-id (update-state-in p [:request-count] inc)]
+    (update-state-in p [:requests] assoc req-id d)
+    (md/finally d #(update-state-in p [:requests] dissoc req-id))
+    (md/timeout! d (:request-timeout options) {:timeout? true})
     [req-id d]))
 
 (defn- resolve-request [p message]
-  (when-some [d (get-in (p/get-state p) [:requests (:request-id message)])]
+  (when-some [d (get-in (get-state p) [:requests (:request-id message)])]
     (md/success! d message)))
 
-(defn- insert-kv-fn [k v ttl]
-  (fn [storage]
-    (-> storage
-        (assoc-in [:data k] v)
-        (update-in [:expiration] u/idx-assoc k (+ (u/now-ms) ttl)))))
-
 (defn- forward-lookup [p {h :hash {trace? :trace-route} :flags :as msg}]
-  (let [address (p/get-address p)
+  (let [address (get-address p)
         nearest-addr (nearest-address p h)]
     (if (= nearest-addr address)
       false
@@ -72,21 +70,34 @@
 (defn- respond-lookup
   [p req-msg response-type data]
   (send-to p (:response-address req-msg)
-             {:type response-type
-              :request-id (:request-id req-msg)
-              :data data
-              :route (if (get-in req-msg [:flags :trace-route])
-                       (conj (:route req-msg) (p/get-address p))
-                       [])}))
+           {:type response-type
+            :request-id (:request-id req-msg)
+            :data data
+            :route (if (get-in req-msg [:flags :trace-route])
+                     (conj (:route req-msg) (get-address p))
+                     [])}))
+
+(defn- insert-kv-fn [k v ttl]
+  (fn [storage]
+    (-> storage
+        (assoc-in [:data k] v)
+        (update :expiration u/idx-assoc k (+ (u/now-ms) ttl)))))
+
+(defn- key-ttl [storage k]
+  (if-some [exp (get-in storage [:expiration :direct k])]
+    (- exp (u/now-ms))
+    0))
 
 (declare period-handler packet-handler cmd-handler)
 
 (defmulti handler (fn [_ msg] (class msg)))
 
 (defmethod handler Init [p _]
-  (p/create-period p :ping (get-in options [:contacts :ping-period]))
-  (p/create-period p :expired-cleanup
-                   (get-in options [:contacts :expired-cleanup-period])))
+  (create-period p :ping (get-in options [:contacts :ping-period]))
+  (create-period p :expired-contacts-cleanup
+                 (get-in options [:contacts :expired-cleanup-period]))
+  (create-period p :expired-kv-cleanup
+                 (get-in options [:storage :expired-cleanup-period])))
 
 (defmethod handler Period [p {:keys [id]}]
   (period-handler p id))
@@ -102,23 +113,32 @@
 (defmulti period-handler (fn [p id] id))
 
 (defmethod period-handler :ping [p _]
-  (let [contacts (-> (p/get-state p) :contacts :direct keys set)]
-    (doseq [contact (disj contacts (p/get-address p))]
+  (let [contacts (-> (get-state p) :contacts :direct keys set)]
+    (doseq [contact (disj contacts (get-address p))]
       (send-to p contact {:type :ping}))))
 
-(defmethod period-handler :expired-cleanup [p _]
-  (p/update-state-in
+(defmethod period-handler :expired-contacts-cleanup [p _]
+  (update-state-in
    p [:contacts]
    (fn [cts]
      (reduce u/idx-dissoc cts
              (u/idx-search cts < (u/now-ms))))))
 
+(defmethod period-handler :expired-kv-cleanup [p _]
+  (update-state-in
+   p [:storage]
+   (fn [storage]
+     (let [expired-keys (u/idx-search (:expiration storage) < (u/now-ms))]
+       (-> storage
+           (update :data #(reduce dissoc % expired-keys))
+           (update :expiration #(reduce u/idx-dissoc % expired-keys)))))))
+
 (defmulti packet-handler (fn [p sender message] (:type message)))
 
 (defmethod packet-handler :ping [p sender message]
-  (p/update-state-in p [:contacts]
-                     u/idx-assoc
-                     sender (contact-expiration-ms))
+  (update-state-in p [:contacts]
+                   u/idx-assoc
+                   sender (contact-expiration-ms))
   (send-to p sender {:type :pong
                      :contacts (-> (alive-contacts p)
                                    set
@@ -126,17 +146,27 @@
                                    vec)}))
 (defmethod packet-handler :store [p _ {k :key v :value ttl :ttl :as msg}]
   (when-not (forward-lookup p msg)
-    (p/update-state-in p [:storage] (insert-kv-fn k v ttl))
-    (respond-lookup p msg :store-response (p/get-address p))))
+    (update-state-in p [:storage] (insert-kv-fn k v ttl))
+    (respond-lookup p msg :store-response (get-address p))))
 
 (defmethod packet-handler :store-response [p _ msg]
   (resolve-request p msg))
 
-(defmethod packet-handler :find-value [p _ msg])
-  ;TODO: if value is present in storage, return it
+(defmethod packet-handler :find-value [p _ {k :key :as msg}]
+  (let [storage (-> p get-state :storage)
+        v (get-in storage [:data k])
+        data {:value (or v "")
+              :ttl (key-ttl storage k)}]
+    (if v
+      (respond-lookup p msg :find-value-response data)
+      (when-not (forward-lookup p msg)
+        (respond-lookup p msg :find-value-response data)))))
+
+(defmethod packet-handler :find-value-response [p _ msg]
+  (resolve-request p msg))
 
 (defmethod packet-handler :pong [p sender {:keys [contacts]}]
-  (p/update-state-in
+  (update-state-in
    p [:contacts]
    (fn [cts]
      (as-> contacts $
@@ -149,15 +179,15 @@
 
 (defmethod cmd-handler :put [p _ {k :key v :value ttl :ttl trace? :trace?}]
   (let [key-hash (-hash k)
-        address (p/get-address p)
+        address (get-address p)
         nearest-addr (nearest-address p key-hash)
         sopts (:storage options)
         ttl (-> ttl (or (:default-ttl sopts)) (min (:max-ttl sopts)))
         route (if trace? [address] [])]
     (if (= nearest-addr address)
       (do
-        (p/update-state-in p [:storage] (insert-kv-fn k v ttl))
-        (doto (p/create-deferred p)
+        (update-state-in p [:storage] (insert-kv-fn k v ttl))
+        (doto (create-deferred p)
           (md/success! {:ttl ttl
                         :address address
                         :route route})))
@@ -173,7 +203,6 @@
                   :key k
                   :value v
                   :ttl ttl})
-        (md/timeout! d (:lookup-timeout options) {:timeout? true})
         (let-flow [{:keys [timeout? data route]} d]
                   (if timeout?
                     ::timeout
@@ -181,7 +210,35 @@
                      :address data
                      :route route}))))))
 
-(defmethod cmd-handler :get [p _ {k :key}])
+(defmethod cmd-handler :get [p _ {k :key trace? :trace?}]
+  (let [key-hash (-hash k)
+        address (get-address p)
+        storage (-> p get-state :storage)
+        v (get-in storage [:data k])
+        nearest-addr (nearest-address p key-hash)
+        route (if trace? [address] [])]
+    (if (or v (= nearest-addr address))
+      (doto (create-deferred p)
+        (md/success! {:value v
+                      :ttl (key-ttl storage k)
+                      :route route}))
+      (let [[req-id d] (create-request p)]
+        (send-to p nearest-addr
+                 {:type :find-value
+                  :hash key-hash
+                  :flags {:trace-route trace?
+                          :empty 0}
+                  :response-address address
+                  :request-id req-id
+                  :route route
+                  :key k})
+        (let-flow
+         [{timeout? :timeout? {:keys [ttl value]} :data route :route} d]
+         (if timeout?
+           ::timeout
+           {:ttl ttl
+            :value value
+            :route route}))))))
 
 (defn create-peer [curator host port contacts]
   (curator/create-peer curator host port handler
