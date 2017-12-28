@@ -15,6 +15,13 @@
 (defn host-port [^InetSocketAddress address]
   [(.getHostString address) (.getPort address)])
 
+(defn str->host-port [string]
+  (let [[host port] (split string #":")]
+    [host (Integer/parseInt port)]))
+
+(defn str->socket-address [string]
+  (apply socket-address (str->host-port string)))
+
 (g/defcodec ipv4-c
   (-> 4 (repeat :ubyte) vec)
   (fn [string]

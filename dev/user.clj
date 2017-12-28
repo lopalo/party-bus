@@ -10,7 +10,8 @@
              [curator :as c]
              [peer-interface :as p]
              [peer :as peer]
-             [codec :as codec]])
+             [codec :as codec]]
+            [party-bus.simulator.server :as sim])
   (:import [party_bus.dht.core Period Init Terminate]))
 
 (defn udp-socket [port]
@@ -70,6 +71,13 @@
      :initial)
     #(.getPort %)))
 
+(def simulator nil)
+
+(defn start-simulator []
+  (sim/start-server {:listen-address "127.0.0.1:12080"
+                     :connect-addresses ["127.0.0.1:12080"]
+                     :dht-ips ["127.0.0.2" "127.0.0.3" "127.0.0.4"]}))
+
 (comment
   (do
     (def echo-p (create-echo-peer 0))
@@ -95,4 +103,9 @@
                                                :trace? true}))
     (prn (deref (c/control-command curator p3 :get {:key "abc"
                                                     :trace? true}))))
-  (c/terminate-all-peers curator))
+  (c/terminate-all-peers curator)
+  (do
+    (when simulator
+      (.close simulator)
+      (Thread/sleep 1000))
+    (def simulator (start-simulator))))
