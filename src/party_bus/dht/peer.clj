@@ -1,5 +1,6 @@
 (ns party-bus.dht.peer
-  (:require [medley.core :refer [abs]]
+  (:require [clojure.string :refer [join]]
+            [medley.core :refer [abs]]
             [gloss.io :refer [encode decode]]
             [manifold.deferred :as md :refer [let-flow]]
             [party-bus.utils :as u]
@@ -11,7 +12,8 @@
                                            create-deferred]]
              [curator :as curator]
              [codec :as codec]])
-  (:import [aleph.udp UdpPacket]
+  (:import [java.net InetSocketAddress]
+           [aleph.udp UdpPacket]
            [party_bus.dht.core Period ControlCommand Init Terminate]))
 
 (def options
@@ -35,6 +37,9 @@
       (u/idx-search >= (u/now-ms))))
 
 (defn- -hash [x]
+  (let [x (if (instance? InetSocketAddress x)
+            (join ":" (u/host-port x))
+            x)])
   (hash x)) ;TODO: SHA-1 to avoid collisions
 
 (defn- distance [hash-val hashable]

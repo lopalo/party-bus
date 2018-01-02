@@ -1,4 +1,4 @@
-(ns party-bus.core
+(ns party-bus.main
   (:require [clojure.string :refer [join]]
             [clojure.tools.cli :refer [parse-opts]]
             [party-bus.simulator.server :as sim])
@@ -11,14 +11,13 @@
    ["-c" "--connect-address" "Addresses of all simulators"
     :id :connect-addresses
     :required "HOST:PORT"
-    :default []
+    :default #{}
     :assoc-fn (fn [m k v] (update m k conj v))]
    ["-d" "--dht-ip" "IPs of DHT peers"
     :id :dht-ips
     :required "IP"
-    :default []
+    :default #{}
     :assoc-fn (fn [m k v] (update m k conj v))]])
-
 
 (defn -main
   [& args]

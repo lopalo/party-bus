@@ -5,6 +5,7 @@
              [stream :as ms]]
             [aleph.udp :as udp]
             [gloss.io :refer [encode decode]]
+            [figwheel-sidecar.repl-api :as fig]
             [party-bus.utils :refer [socket-address]]
             [party-bus.dht
              [curator :as c]
@@ -71,12 +72,21 @@
      :initial)
     #(.getPort %)))
 
-(def simulator nil)
+(defonce simulator nil)
 
 (defn start-simulator []
   (sim/start-server {:listen-address "127.0.0.1:12080"
-                     :connect-addresses ["127.0.0.1:12080"]
-                     :dht-ips ["127.0.0.2" "127.0.0.3" "127.0.0.4"]}))
+                     :connect-addresses #{"127.0.0.1:12080"}
+                     :dht-ips #{"127.0.0.2" "127.0.0.3" "127.0.0.4"}}))
+
+(defn fig-start []
+  (fig/start-figwheel!))
+
+(defn fig-stop []
+  (fig/stop-figwheel!))
+
+(defn cljs-repl []
+  (fig/cljs-repl))
 
 (comment
   (do

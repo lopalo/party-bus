@@ -1,7 +1,8 @@
 (ns party-bus.simulator.dht
   (:require [compojure
-             [core :refer [routes GET POST DELETE]]
+             [core :refer [routes GET PUT POST DELETE]]
              [coercions :refer [as-int]]]
+            [manifold.deferred :as md]
             [party-bus.dht.curator :as c]
             [party-bus.dht.peer :as p]
             [party-bus.utils :as u]
@@ -15,8 +16,9 @@
   (connect-ws (c/listen-to-addresses curator) req))
 
 (defn- create-peer [curator ip port contacts]
-  @(p/create-peer curator ip port (map u/str->socket-address contacts))
-  (edn-response :ok))
+  (md/chain
+   (p/create-peer curator ip port (map u/str->socket-address contacts))
+   (constantly (edn-response :ok))))
 
 (defn- terminate-peer [curator ip port]
   (c/terminate-peer curator (u/socket-address ip port))
@@ -43,7 +45,12 @@
      (listen-to-addresses curator req))
    (GET "/peer/:ip/:port" [ip port :<< as-int :as req]
      (listen-to-peer curator req ip port))
-   (POST "/peer/:ip/:port" [ip port :<< as-int :as req]
+   (POST "/peer/:ip" [ip :as req]
+     (create-peer curator ip 0 (edn-body req)))
+   (PUT "/peer/:ip/:port" [ip port :<< as-int :as req]
      (create-peer curator ip port (edn-body req)))
    (DELETE "/peer/:ip/:port" [ip port :<< as-int]
-     (terminate-peer curator ip port))))
+     (terminate-peer curator ip port))
+   ;TODO:
+   (POST "/put/:ip/:port" [ip port :<< as-int])
+   (GET "/get/:ip/:port" [ip port :<< as-int])))

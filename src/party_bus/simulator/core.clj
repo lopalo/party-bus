@@ -1,12 +1,20 @@
 (ns party-bus.simulator.core
   (:require [clojure.walk :refer [prewalk]]
             [clojure.edn :as edn]
-            [ring.util.response :refer [response content-type]]
-            [ring.util.request :refer [body-string]]
+            [ring.util
+             [response :refer [response content-type]]
+             [request :refer [body-string]]]
+            [compojure.response :refer [Renderable]]
+            manifold.deferred
             [manifold.stream :as ms]
             [aleph.http :as http]
             [party-bus.utils :as u])
-  (:import [java.net InetSocketAddress]))
+  (:import [java.net InetSocketAddress]
+           [manifold.deferred IDeferred]))
+
+(extend-protocol Renderable
+  IDeferred
+  (render [d _] d))
 
 (defn translate-addresses [form]
   (prewalk #(if (instance? InetSocketAddress %) (u/host-port %) %) form))
