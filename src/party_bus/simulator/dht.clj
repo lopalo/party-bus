@@ -33,6 +33,16 @@
                     (update :contacts :direct)
                     (update-in [:storage :expiration] :direct)))))
 
+(defn- put-value [curator ip port args]
+  (md/chain
+   (c/control-command curator (u/socket-address ip port) :put args)
+   edn-response))
+
+(defn- get-value [curator ip port args]
+  (md/chain
+   (c/control-command curator (u/socket-address ip port) :get args)
+   edn-response))
+
 (defn make-state [dht-ips]
   (when (seq dht-ips)
     (->State dht-ips (c/create-curator 8 nil prn))))
@@ -51,6 +61,7 @@
      (create-peer curator ip port (edn-body req)))
    (DELETE "/peer/:ip/:port" [ip port :<< as-int]
      (terminate-peer curator ip port))
-   ;TODO:
-   (POST "/put/:ip/:port" [ip port :<< as-int])
-   (GET "/get/:ip/:port" [ip port :<< as-int])))
+   (POST "/put/:ip/:port" [ip port :<< as-int :as req]
+     (put-value curator ip port (edn-body req)))
+   (POST "/get/:ip/:port" [ip port :<< as-int :as req]
+     (get-value curator ip port (edn-body req)))))

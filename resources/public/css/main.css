@@ -1,0 +1,33 @@
+
+.horizontal {
+    margin-top: 0.5em;
+    margin-bottom: 0.5em;
+}
+
+.horizontal > div {
+    display: inline-block;
+    padding-right: 1em;
+}
+
+.dht > div {
+    display: inline-block;
+    vertical-align: top;
+}
+
+.dht > .peer {
+    padding-left: 2em;
+}
+
+
+.dht .peer .contact {
+    cursor: pointer;
+}
+
+.dht .graph {
+    border: 1px solid black;
+}
+
+.dht .graph .peer {
+    cursor: pointer;
+}
+

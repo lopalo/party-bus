@@ -37,10 +37,10 @@
       (u/idx-search >= (u/now-ms))))
 
 (defn- -hash [x]
-  (let [x (if (instance? InetSocketAddress x)
-            (join ":" (u/host-port x))
-            x)])
-  (hash x)) ;TODO: SHA-1 to avoid collisions
+  ;TODO: SHA-1 to avoid collisions
+  (hash (if (instance? InetSocketAddress x)
+          (join ":" (u/host-port x))
+          x)))
 
 (defn- distance [hash-val hashable]
   (abs (- hash-val (-hash hashable))))
@@ -255,4 +255,3 @@
                          :expiration u/index}
                         :request-count 0
                         :requests {}}))
-
