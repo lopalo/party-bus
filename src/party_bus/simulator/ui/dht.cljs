@@ -19,7 +19,7 @@
 (defn- position [center radius address]
   (let [h (-> address hash- (js/parseInt 16))
         [cx cy] center
-        t (+ (* (/ h max-hash) 2 Math/PI) (/ Math/PI 2))]
+        t (- (* (/ h max-hash) 2 Math/PI) (/ Math/PI 2))]
     [(+ cx (* radius (Math/cos t)))
      (+ cy (* radius (Math/sin t)))]))
 
@@ -38,19 +38,25 @@
         (fn [address color]
           (let [h (hash- address)
                 [x y] (position center radius address)]
-            [:g
-             {:key h}
-             [:circle.peer
-              {:cx x
-               :cy y
-               :r 10
-               :stroke :black
-               :stroke-width 1
-               :fill color
-               :on-click #(reset! selected-peer address)}]]))]
+           [:circle.peer
+            {:key h
+             :cx x
+             :cy y
+             :r 10
+             :stroke :black
+             :stroke-width 1
+             :fill color
+             :on-click #(reset! selected-peer address)}]))]
     [:svg.graph
      {:width width
       :height height}
+     [:circle
+      {:cx cx
+       :cy (- cy radius 20)
+       :r 3
+       :stroke :black
+       :stroke-width 1
+       :fill :white}]
      (concat
       (for [[p p'] contacts
             :let [[x y] (position center radius p)
@@ -114,10 +120,7 @@
         [ip port] address
         input-val #(.-value (rum/ref state %))
         show-route #(reset! contacts
-                            (partition 2 1 (-> @local
-                                               :last-request
-                                               :route
-                                               (conj address))))
+                            (partition 2 1 (-> @local :last-request :route)))
         set-last-request
         (fn [k method response]
           (when (= address (:address @local))

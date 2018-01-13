@@ -20,7 +20,8 @@
 (set! *warn-on-reflection* true)
 
 (def options
-  {:stabilization-period 3000
+  {:contacts {:pointers-step 16
+              :stabilization-period 3000}
    :storage {:max-ttl 3600000
              :default-ttl 600000
              :expired-cleanup-period 1000}
@@ -48,7 +49,7 @@
   (if (< hash-val origin) :left :right))
 
 (defn- pointers [origin sign]
-  (for [n (range N)
+  (for [n (range 0 N (get-in options [:contacts :pointers-step]))
         :let [v (sign origin (.pow two n))]
         :when (< 0 v max-hash)]
     v))
@@ -90,6 +91,7 @@
     (md/success! d message)))
 
 (defn- forward-lookup [p {h :hash {trace? :trace-route} :flags :as msg}]
+  ;TODO: fix infinite lookup
   (let [address (get-address p)
         nearest-addr (nearest-address p h)]
     (insert-contact p (:response-address msg))
@@ -133,7 +135,8 @@
     (update-state-in p [:contacts :left] (constantly contacts))
     (update-state-in p [:contacts :right] (constantly contacts))
     (insert-seeds p)
-    (create-period p :stabilization (:stabilization-period options))
+    (create-period p :stabilization
+                   (get-in options [:contacts :stabilization-period]))
     (create-period p :expired-kv-cleanup
                    (get-in options [:storage :expired-cleanup-period]))))
 
