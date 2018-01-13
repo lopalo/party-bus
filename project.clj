@@ -16,7 +16,9 @@
                  [compojure "1.6.0"]
                  [rum "0.10.8"]
                  [cljs-http "0.1.44"]
-                 [jarohen/chord "0.8.1"]]
+                 [jarohen/chord "0.8.1"]
+                 [digest "1.4.6"]
+                 [cljs-hash "0.0.2"]]
   :source-paths ["src"]
   :main ^:skip-aot party-bus.main
   :target-path "target/%s"

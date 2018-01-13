@@ -3,6 +3,7 @@
             [medley.core :refer [abs]]
             [gloss.io :refer [encode decode]]
             [manifold.deferred :as md :refer [let-flow]]
+            [digest :refer [sha1]]
             [party-bus.utils :as u]
             [party-bus.dht
              [peer-interface :as p :refer [get-address
@@ -16,10 +17,10 @@
            [aleph.udp UdpPacket]
            [party_bus.dht.core Period ControlCommand Init Terminate]))
 
+(set! *warn-on-reflection* true)
+
 (def options
-  {:contacts {:ping-period 200
-              :expired-cleanup-period 1000
-              :ttl 5000}
+  {:stabilization-period 3000
    :storage {:max-ttl 3600000
              :default-ttl 600000
              :expired-cleanup-period 1000}
@@ -28,27 +29,53 @@
 (defn- send-to [p receiver msg]
   (p/send-to p receiver (encode codec/message msg)))
 
-(defn- contact-expiration-ms []
-  (+ (u/now-ms) (get-in options [:contacts :ttl])))
+(defn- hash- [x]
+  (-> (if (instance? InetSocketAddress x)
+        (join ":" (u/host-port x))
+        x)
+      ^String sha1
+      (BigInteger. 16)
+      bigint))
 
-(defn- alive-contacts [p]
-  (-> (get-state p)
-      :contacts
-      (u/idx-search >= (u/now-ms))))
+(def ^:private N 160)
 
-(defn- -hash [x]
-  ;TODO: SHA-1 to avoid collisions
-  (hash (if (instance? InetSocketAddress x)
-          (join ":" (u/host-port x))
-          x)))
+(def ^:private max-hash
+  (as-> "f" $ (repeat 40 $) (apply str $) (BigInteger. ^String $ 16)))
 
-(defn- distance [hash-val hashable]
-  (abs (- hash-val (-hash hashable))))
+(def ^:private ^BigInteger two (biginteger 2))
+
+(defn- direction [origin hash-val]
+  (if (< hash-val origin) :left :right))
+
+(defn- pointers [origin sign]
+  (for [n (range N)
+        :let [v (sign origin (.pow two n))]
+        :when (< 0 v max-hash)]
+    v))
+
+(def ^:private distances (into (sorted-set) (pointers 0 +)))
+
+(defn- distance [h h']
+  (abs (- h' h)))
 
 (defn- nearest-address [p hash-val]
-  (apply min-key
-         (partial distance hash-val)
-         (-> p alive-contacts (conj (get-address p)))))
+  (let [state (get-state p)
+        h (:hash state)
+        contacts (get-in state [:contacts (direction h hash-val)])
+        [_ address] (first (rsubseq contacts <= (distance h hash-val)))]
+    address))
+
+(defn- insert-contact [p address]
+  (let [h (-> p get-state :hash)
+        h' (hash- address)
+        dist (first (rsubseq distances <= (distance h h')))]
+    (when-not (= address (get-address p))
+      (update-state-in p [:contacts (direction h h') dist]
+                       #(if % % address)))))
+
+(defn- insert-seeds [p]
+  (run! (partial insert-contact p)
+        (get-in (get-state p) [:contacts :seeds])))
 
 (defn- create-request [p]
   (let [d (create-deferred p)
@@ -65,11 +92,12 @@
 (defn- forward-lookup [p {h :hash {trace? :trace-route} :flags :as msg}]
   (let [address (get-address p)
         nearest-addr (nearest-address p h)]
+    (insert-contact p (:response-address msg))
     (if (= nearest-addr address)
       false
       (do
         (send-to p nearest-addr
-                 (update msg :route #(if trace? (conj % address))))
+                 (update msg :route #(if trace? (conj % address) [])))
         true))))
 
 (defn- respond-lookup
@@ -98,11 +126,16 @@
 (defmulti handler (fn [_ msg] (class msg)))
 
 (defmethod handler Init [p _]
-  (create-period p :ping (get-in options [:contacts :ping-period]))
-  (create-period p :expired-contacts-cleanup
-                 (get-in options [:contacts :expired-cleanup-period]))
-  (create-period p :expired-kv-cleanup
-                 (get-in options [:storage :expired-cleanup-period])))
+  (let [address (get-address p)
+        h (hash- address)
+        contacts (sorted-map 0 address)]
+    (update-state-in p [:hash] (constantly h))
+    (update-state-in p [:contacts :left] (constantly contacts))
+    (update-state-in p [:contacts :right] (constantly contacts))
+    (insert-seeds p)
+    (create-period p :stabilization (:stabilization-period options))
+    (create-period p :expired-kv-cleanup
+                   (get-in options [:storage :expired-cleanup-period]))))
 
 (defmethod handler Period [p {:keys [id]}]
   (period-handler p id))
@@ -117,17 +150,42 @@
 
 (defmulti period-handler (fn [p id] id))
 
-(defmethod period-handler :ping [p _]
-  (let [contacts (-> (get-state p) :contacts :direct keys set)]
-    (doseq [contact (disj contacts (get-address p))]
-      (send-to p contact {:type :ping}))))
-
-(defmethod period-handler :expired-contacts-cleanup [p _]
-  (update-state-in
-   p [:contacts]
-   (fn [cts]
-     (reduce u/idx-dissoc cts
-             (u/idx-search cts < (u/now-ms))))))
+(defmethod period-handler :stabilization [p _]
+  (let [address (get-address p)
+        state (get-state p)
+        cs (:contacts state)
+        empty-contacts? (-> (:left cs) (merge (:right cs)) (dissoc 0) empty?)
+        h (:hash state)
+        stabilize
+        (fn [dir]
+          (apply
+           md/zip
+           (for [pointer (pointers h (if (= dir :left) - +))
+                 :let [nearest-addr (nearest-address p pointer)]
+                 :when (not= nearest-address address)]
+             (let [[req-id d] (create-request p)]
+               (send-to p nearest-addr
+                        {:type :find-peer
+                         :hash pointer
+                         :flags {:trace-route false
+                                 :empty 0}
+                         :response-address address
+                         :request-id req-id
+                         :route []})
+               (let-flow
+                [dist (distance h pointer)
+                 {timeout? :timeout? address' :data} d
+                 dir' (if address' (direction h (hash- address')))]
+                (if timeout?
+                  (update-state-in p [:contacts dir] dissoc dist)
+                  (when (and (not= address' address) (= dir dir'))
+                    (update-state-in p [:contacts dir dist]
+                                     (constantly address')))))))))]
+    (when empty-contacts?
+      (insert-seeds p))
+    (md/zip
+     (stabilize :left)
+     (stabilize :right))))
 
 (defmethod period-handler :expired-kv-cleanup [p _]
   (update-state-in
@@ -140,15 +198,13 @@
 
 (defmulti packet-handler (fn [p sender message] (:type message)))
 
-(defmethod packet-handler :ping [p sender message]
-  (update-state-in p [:contacts]
-                   u/idx-assoc
-                   sender (contact-expiration-ms))
-  (send-to p sender {:type :pong
-                     :contacts (-> (alive-contacts p)
-                                   set
-                                   (disj sender)
-                                   vec)}))
+(defmethod packet-handler :find-peer [p _ {k :key :as msg}]
+  (when-not (forward-lookup p msg)
+    (respond-lookup p msg :find-peer-response (get-address p))))
+
+(defmethod packet-handler :find-peer-response [p _ msg]
+  (resolve-request p msg))
+
 (defmethod packet-handler :store [p _ {k :key v :value ttl :ttl :as msg}]
   (when-not (forward-lookup p msg)
     (update-state-in p [:storage] (insert-kv-fn k v ttl))
@@ -170,20 +226,10 @@
 (defmethod packet-handler :find-value-response [p _ msg]
   (resolve-request p msg))
 
-(defmethod packet-handler :pong [p sender {:keys [contacts]}]
-  (update-state-in
-   p [:contacts]
-   (fn [cts]
-     (as-> contacts $
-           (zipmap $ (repeat (u/now-ms)))
-           (assoc $ sender (contact-expiration-ms))
-           (map (fn [[c exp]] [c (max (get-in cts [:direct c] 0) exp)]) $)
-           (reduce (partial apply u/idx-assoc) cts $)))))
-
 (defmulti cmd-handler (fn [p cmd args] cmd))
 
 (defmethod cmd-handler :put [p _ {k :key v :value ttl :ttl trace? :trace?}]
-  (let [key-hash (-hash k)
+  (let [key-hash (hash- k)
         address (get-address p)
         nearest-addr (nearest-address p key-hash)
         sopts (:storage options)
@@ -216,7 +262,7 @@
                      :route route}))))))
 
 (defmethod cmd-handler :get [p _ {k :key trace? :trace?}]
-  (let [key-hash (-hash k)
+  (let [key-hash (hash- k)
         address (get-address p)
         storage (-> p get-state :storage)
         v (get-in storage [:data k])
@@ -247,9 +293,11 @@
 
 (defn create-peer [curator host port contacts]
   (curator/create-peer curator host port handler
-                       {:contacts
-                        (reduce #(u/idx-assoc %1 %2 (u/now-ms))
-                                u/index contacts)
+                       {:hash nil
+                        :contacts
+                        {:seeds (set contacts)
+                         :left nil
+                         :right nil}
                         :storage
                         {:data {}
                          :expiration u/index}

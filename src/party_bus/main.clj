@@ -25,12 +25,13 @@
     (cond
       errors
       (do
-        (prn (join \newline errors))
+        (println (join \newline errors))
         (System/exit 1))
       (:help options)
       (do
-        (prn summary)
+        (println summary)
         (System/exit 1)))
     (if (:listen-address options)
       (sim/start-server options)
-      (prn "'listen-address' is not specified, so simulator is not started"))))
+      (println
+       "'listen-address' is not specified, so simulator is not started"))))

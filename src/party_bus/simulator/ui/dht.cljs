@@ -3,25 +3,23 @@
             [clojure.string :refer [join]]
             [cljs.core.async :as async :refer [<!]]
             [medley.core :refer [remove-vals]]
+            [cljs-hash.sha1 :refer [sha1]]
             [rum.core :as rum :refer [react]]
             [party-bus.simulator.ui.core :refer [request connect-ws]])
   (:require-macros [clojure.core.strint :refer [<<]]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
-(def min-val -2147483648)
-(def max-val 2147483647)
-(def space-size (- max-val min-val))
+(def max-hash (as-> "f" $ (repeat 40 $) (apply str $) (js/parseInt $ 16)))
 
 (defn- hash- [x]
-;TODO: SHA-1 to avoid collisions
-  (hash (if (and (vector? x) (= (count x) 2))
-          (hash (join ":" x))
+  (sha1 (if (and (vector? x) (= (count x) 2))
+          (join ":" x)
           x)))
 
 (defn- position [center radius address]
-  (let [h (hash- address)
+  (let [h (-> address hash- (js/parseInt 16))
         [cx cy] center
-        t (+ (* (/ h space-size) 2 Math/PI) (/ Math/PI 2))]
+        t (+ (* (/ h max-hash) 2 Math/PI) (/ Math/PI 2))]
     [(+ cx (* radius (Math/cos t)))
      (+ cy (* radius (Math/sin t)))]))
 
@@ -92,7 +90,8 @@
                  (swap! local assoc :ws-c ws-c)
                  (loop [{peer-state :message} (<! ws-c)]
                    (when (and peer-state (active?))
-                     (let [p-contacts (-> peer-state :contacts keys set)]
+                     (let [cs (:contacts peer-state)
+                           p-contacts (union (:left cs) (:right cs))]
                        (if-not (:peer-state @local)
                          (reset! contacts
                                  (for [c p-contacts] [selected-peer' c]))
@@ -113,7 +112,6 @@
   (let [local (::local state)
         {:keys [address peer-state]} @local
         [ip port] address
-        peer-contacts (-> peer-state :contacts keys)
         input-val #(.-value (rum/ref state %))
         show-route #(reset! contacts
                             (partition 2 1 (-> @local
@@ -123,9 +121,12 @@
         set-last-request
         (fn [k method response]
           (when (= address (:address @local))
-            (swap! local assoc :last-request
-                   (assoc response :key k :method method))
-            (show-route)))
+            (if (map? response)
+              (do
+                (swap! local assoc :last-request
+                       (assoc response :key k :method method))
+                (show-route))
+              (swap! local assoc :last-request response))))
         do-put
         (fn []
           (go
@@ -145,10 +146,10 @@
           (go
             (let [k (input-val "get-key")
                   params {:key k
-                          :trace? true}
+                          :trace true}
                   res (<! (request :post (ips ip)
                                    (<< "/dht/get/~{ip}/~{port}")
-                                   :edn-params params))]
+                                   :query-params params))]
               (set-last-request k :get (:body res)))))]
     [:.peer
      (if address
@@ -159,9 +160,8 @@
          {:on-click #(request :delete (ips ip)
                               (<< "/dht/peer/~{ip}/~{port}"))}
          "Terminate"]])
-     (if-let [{:keys [storage request-count]} peer-state]
+     (if-let [{storage :storage contact-addresses :contacts} peer-state]
        [:div
-        [:div "Request count: " request-count]
         [:div
          [:input {:ref "put-key" :placeholder "Key"}]
          [:input {:ref "put-value" :placeholder "Value"}]
@@ -170,37 +170,52 @@
         [:div
          [:input {:ref "get-key" :placeholder "Key"}]
          [:button {:on-click do-get} "Get"]]
-        (if-let [{:keys [key method route value ttl]} (:last-request @local)]
+        (if-let [last-request (:last-request @local)]
           [:div
            [:div "Last request"]
-           [:ul
-            [:li "method: " (name method)]
-            [:li "key: " key]
-            [:li "key hash: " (hash- key)]
-            [:li "hops: " (count route)]
-            (if value [:li "value: " value])
-            (if ttl [:li "ttl " ttl])]])
+           (if (map? last-request)
+             (let [{:keys [key method route value ttl]} last-request]
+               [:ul
+                [:li "method: " (name method)]
+                [:li "key: " key]
+                [:li "key hash: " (hash- key)]
+                [:li "hops: " (count route)]
+                (if value [:li "value: " value])
+                (if ttl [:li "ttl " ttl])])
+             [:div [:strong (str last-request)]])])
         [:div "Data"
          (let [{:keys [data expiration]} storage]
            [:ul (for [[k v] data
                       :let [exp (-> k expiration js/Date.
                                     (.toLocaleString "en-GB"))]]
                   [[:li {:key k} (<< "~{k} (~{exp}): ~{v}")]])])]
-        [:div.contact
-         {:on-click
-          #(reset! contacts (for [c peer-contacts] [address c]))}
-         "Contacts"]
-        [:ul.contact
-         (for [[ip port :as c] (sort peer-contacts)]
-           [:li
-            {:key c
-             :on-click #(reset! contacts [[address c]])}
-            ip ":" port])]])]))
+        (let [{:keys [left right]} contact-addresses
+              contacts-list
+              (fn [title items]
+                [:div
+                 [:div.contact
+                  {:on-click #(reset! contacts (for [c items] [address c]))}
+                  title]
+                 [:ul
+                  (for [[ip port :as c] (sort items)]
+                    [:li.contact
+                     {:key c
+                      :on-click #(reset! contacts [[address c]])}
+                     ip ":" port])]])]
+          [:div
+           [:div.contact
+            {:on-click #(reset! contacts (for [c (union left right)]
+                                           [address c]))}
+            "Contacts"]
+           [:ul
+            [:li (contacts-list "Left" left)]
+            [:li (contacts-list "Right" right)]]])])]))
 
 (rum/defcs dht
   < (rum/local {} ::ips)
   < (rum/local {} ::curator-ws)
   < (rum/local #{} ::peers)
+  < (rum/local 0 ::total)
   < (rum/local nil ::selected-peer)
   < (rum/local [] ::selected-contacts)
   < (let [simulators (comp first :rum/args)
@@ -228,7 +243,7 @@
                 (swap! (::curator-ws state)
                        #(apply conj % (map vector add-sims channels)))
                 (doseq [ws-c channels]
-                  (go-loop [{[header peers] :message} (<! ws-c)]
+                  (go-loop [{[header peers total] :message} (<! ws-c)]
                     (when header
                       (swap! (::peers state)
                              (case header
@@ -236,6 +251,7 @@
                                :add union
                                :delete difference)
                              peers)
+                      (reset! (::total state) total)
                       (recur (<! ws-c)))))))
             state)]
       {:did-mount
@@ -280,7 +296,7 @@
      [:.dht
       [:.peers
        [:div.horizontal
-        [:div "Peers: " (count peers)]
+        [:div "Peers: " @(::total state)]
         [:div
          [:input {:ref "create-count" :default-value 3}]
          [:button {:on-click create-peers} "Create peers"]]

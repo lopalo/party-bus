@@ -1,6 +1,5 @@
 (ns party-bus.dht.curator
-  (:require [clojure.set :refer [difference]]
-            [medley.core :refer [deref-reset!]]
+  (:require [medley.core :refer [deref-reset!]]
             [manifold
              [executor :refer [fixed-thread-executor]]
              [deferred :as md :refer [let-flow]]
@@ -107,16 +106,12 @@
 (defn listen-to-addresses [^Curator curator]
   (let [s (ms/stream 1 nil (.executor curator))
         peers (.peers curator)]
-    (ms/put! s [:initial (-> peers deref keys set)])
+    (ms/put! s [nil (-> peers deref keys set)])
     (add-watch
      peers s
      (fn [_ _ old-peers new-peers]
        (if new-peers
-         (let [old-p (-> old-peers keys set)
-               new-p (-> new-peers keys set)]
-           (if (> (count new-p) (count old-p))
-             (ms/put! s [:add (difference new-p old-p)])
-             (ms/put! s [:delete (difference old-p new-p)])))
+         (ms/put! s [(-> old-peers keys set) (-> new-peers keys set)])
          (ms/close! s))))
     (ms/on-closed s #(remove-watch peers s))
     s))
@@ -125,12 +120,12 @@
   (let [s (ms/stream 1 nil (.executor curator))]
     (if-some [peer-state (some-> (get-peer curator address) .state)]
       (do
-        (ms/put! s @peer-state)
+        (ms/put! s [nil @peer-state])
         (add-watch
          peer-state s
          (fn [_ _ old-st new-st]
            (if (not= new-st terminated)
-             (if (not= old-st new-st) (ms/put! s new-st))
+             (ms/put! s [old-st new-st])
              (ms/close! s))))
         (ms/on-closed s #(remove-watch peer-state s)))
       (ms/close! s))

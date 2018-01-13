@@ -12,6 +12,9 @@
   (:import [java.net InetSocketAddress]
            [manifold.deferred IDeferred]))
 
+(defn as-bool [s]
+  (= s "true"))
+
 (extend-protocol Renderable
   IDeferred
   (render [d _] d))
@@ -37,4 +40,9 @@
   ([stream request f]
    (let [ws @(http/websocket-connection request)]
      (ms/on-closed ws #(ms/close! stream))
-     (ms/connect (ms/map (comp pr-str translate-addresses f) stream) ws))))
+     (ms/connect (->> stream
+                      (ms/map f)
+                      (ms/filter some?)
+                      (ms/map (comp pr-str translate-addresses)))
+                 ws))))
+
