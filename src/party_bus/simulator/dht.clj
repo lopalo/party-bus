@@ -19,7 +19,7 @@
    (c/listen-to-addresses curator) req
    (fn [[old-peers new-peers]]
      (let [total (count new-peers)
-           max-total 100]
+           max-total 1000]
        (if old-peers
          (if (> total (count old-peers))
            [:add
@@ -83,7 +83,7 @@
      (create-peer curator ip port (edn-body req)))
    (DELETE "/peer/:ip/:port" [ip port :<< as-int]
      (terminate-peer curator ip port))
-   (POST "/put/:ip/:port" [ip port :<< as-int :as req]
+   (PUT "/put/:ip/:port" [ip port :<< as-int :as req]
      (put-value curator ip port (edn-body req)))
-   (POST "/get/:ip/:port" [ip port :<< as-int key trace :<< as-bool]
+   (GET "/get/:ip/:port" [ip port :<< as-int key trace :<< as-bool]
      (get-value curator ip port key trace))))

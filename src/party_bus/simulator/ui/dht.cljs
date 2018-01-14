@@ -139,7 +139,7 @@
                           :value (input-val "put-value")
                           :ttl (if (js/isNaN ttl) 0 ttl)
                           :trace? true}
-                  res (<! (request :post (ips ip)
+                  res (<! (request :put (ips ip)
                                    (<< "/dht/put/~{ip}/~{port}")
                                    :edn-params params))]
               (set-last-request k :put (:body res)))))
@@ -150,7 +150,7 @@
             (let [k (input-val "get-key")
                   params {:key k
                           :trace true}
-                  res (<! (request :post (ips ip)
+                  res (<! (request :get (ips ip)
                                    (<< "/dht/get/~{ip}/~{port}")
                                    :query-params params))]
               (set-last-request k :get (:body res)))))]
@@ -281,7 +281,7 @@
                           p-contacts
                           (if (seq peers')
                             (map #(join ":" %)
-                                 (repeatedly 3 #(rand-nth peers')))
+                                 (repeatedly 4 #(rand-nth peers')))
                             [])]]
               (request :post (ips ip)
                        (str "/dht/peer/" ip)

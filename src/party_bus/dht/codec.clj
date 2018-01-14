@@ -21,9 +21,18 @@
 
 (g/defcodec msg-type
   (g/enum :byte
+          :ping :pong
           :find-peer :find-peer-response
           :find-value :find-value-response
           :store :store-response))
+
+(g/defcodec ping
+  {:type :ping
+   :request-id :int64})
+
+(g/defcodec pong
+  {:type :pong
+   :request-id :int64})
 
 (def lookup-request-frame
   {:hash -hash
@@ -80,7 +89,9 @@
 (g/defcodec message
   (g/header
    msg-type
-   {:find-peer find-peer
+   {:ping ping
+    :pong pong
+    :find-peer find-peer
     :find-peer-response find-peer-response
     :find-value find-value
     :find-value-response find-value-response
