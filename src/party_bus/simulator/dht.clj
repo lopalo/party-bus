@@ -14,12 +14,11 @@
 
 (defrecord State [dht-ips curator])
 
-(defn- listen-to-addresses [curator req]
+(defn- listen-to-addresses [curator req max-total]
   (connect-ws
    (c/listen-to-addresses curator) req
    (fn [[old-peers new-peers]]
-     (let [total (count new-peers)
-           max-total 1000]
+     (let [total (count new-peers)]
        (if old-peers
          (if (> total (count old-peers))
            [:add
@@ -38,21 +37,19 @@
   (edn-response :ok))
 
 (defn- listen-to-peer [curator req ip port]
-  (let [address (u/socket-address ip port)
-        contacts-view (comp #(disj % address) set vals)]
-    (connect-ws
-     (c/listen-to-peer curator address) req
-     (fn [[old-st new-st]]
-       (let [view #(-> %
-                       (dissoc :request-count)
-                       (dissoc :requests)
-                       (update-in [:contacts :left] contacts-view)
-                       (update-in [:contacts :right] contacts-view)
-                       (update-in [:storage :expiration] :direct))
-             new-v (view new-st)]
-         (if (or (nil? old-st)
-                 (not= (view old-st) new-v))
-           new-v))))))
+  (connect-ws
+   (c/listen-to-peer curator (u/socket-address ip port)) req
+   (fn [[old-st new-st]]
+     (let [contacts-view (comp set (partial map first) vals :pointers)
+           view #(-> %
+                     (dissoc :request-count)
+                     (dissoc :requests)
+                     (update :contacts contacts-view)
+                     (update-in [:storage :expiration] :direct))
+           new-v (view new-st)]
+       (if (or (nil? old-st)
+               (not= (view old-st) new-v))
+         new-v)))))
 
 (defn- put-value [curator ip port args]
   (md/chain
@@ -73,8 +70,8 @@
   (routes
    (GET "/ip-addresses" []
      (edn-response dht-ips))
-   (GET "/peer-addresses" req
-     (listen-to-addresses curator req))
+   (GET "/peer-addresses" [max-total :<< as-int :as req]
+     (listen-to-addresses curator req max-total))
    (GET "/peer/:ip/:port" [ip port :<< as-int :as req]
      (listen-to-peer curator req ip port))
    (POST "/peer/:ip" [ip :as req]

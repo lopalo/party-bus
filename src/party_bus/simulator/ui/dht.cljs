@@ -32,33 +32,37 @@
         center [(/ width 2) (/ height 2)]
         [cx cy] center
         selected-peer' (react selected-peer)
-        contact-peers (->> contacts (apply concat) set)
+        contacts' (react contacts)
+        contact-peers (->> contacts' (apply concat) set)
         selected-peers (if selected-peer' #{selected-peer'})
         peer
         (fn [address color]
           (let [h (hash- address)
                 [x y] (position center radius address)]
-           [:circle.peer
-            {:key h
-             :cx x
-             :cy y
-             :r 10
-             :stroke :black
-             :stroke-width 1
-             :fill color
-             :on-click #(reset! selected-peer address)}]))]
+            [:circle.peer
+             {:key h
+              :cx x
+              :cy y
+              :r 10
+              :stroke :black
+              :stroke-width 1
+              :fill color
+              :on-click #(reset! selected-peer address)}]))]
     [:svg.graph
      {:width width
       :height height}
-     [:circle
+     [:circle.peer
       {:cx cx
        :cy (- cy radius 20)
-       :r 3
+       :r 5
        :stroke :black
        :stroke-width 1
-       :fill :white}]
+       :fill :white
+       :on-click (fn []
+                   (reset! selected-peer nil)
+                   (reset! contacts []))}]
      (concat
-      (for [[p p'] contacts
+      (for [[p p'] contacts'
             :let [[x y] (position center radius p)
                   [x' y'] (position center radius p')]]
         [:path {:key (str (hash- p) "-" (hash- p'))
@@ -89,27 +93,26 @@
          (when (not= selected-peer' address)
            (when ws-c (async/close! ws-c))
            (reset! local (assoc peer-ui-state :address selected-peer'))
-           (go
-             (let [ws-c (<! (connect-ws (ips ip)
-                                        (<< "/dht/peer/~{ip}/~{port}")))]
-               (when (active?)
-                 (swap! local assoc :ws-c ws-c)
-                 (loop [{peer-state :message} (<! ws-c)]
-                   (when (and peer-state (active?))
-                     (let [cs (:contacts peer-state)
-                           p-contacts (union (:left cs) (:right cs))]
-                       (if-not (:peer-state @local)
-                         (reset! contacts
-                                 (for [c p-contacts] [selected-peer' c]))
-                         (swap! contacts
-                                (partial remove
-                                         (fn [[p p']]
-                                           (and (= p selected-peer')
-                                                (not (p-contacts p'))))))))
-                     (swap! local assoc :peer-state peer-state)
-                     (recur (<! ws-c)))))
-               (async/close! ws-c)))))
-
+           (when selected-peer'
+             (go
+               (let [ws-c (<! (connect-ws (ips ip)
+                                          (<< "/dht/peer/~{ip}/~{port}")))]
+                 (when (active?)
+                   (swap! local assoc :ws-c ws-c)
+                   (loop [{peer-state :message} (<! ws-c)]
+                     (when (and peer-state (active?))
+                       (let [p-contacts (:contacts peer-state)]
+                         (if-not (:peer-state @local)
+                           (reset! contacts
+                                   (for [c p-contacts] [selected-peer' c]))
+                           (swap! contacts
+                                  (partial remove
+                                           (fn [[p p']]
+                                             (and (= p selected-peer')
+                                                  (not (p-contacts p'))))))))
+                       (swap! local assoc :peer-state peer-state)
+                       (recur (<! ws-c)))))
+                 (async/close! ws-c))))))
        state)
      :will-unmount
      (fn [state]
@@ -163,7 +166,7 @@
          {:on-click #(request :delete (ips ip)
                               (<< "/dht/peer/~{ip}/~{port}"))}
          "Terminate"]])
-     (if-let [{storage :storage contact-addresses :contacts} peer-state]
+     (if-let [{storage :storage p-contacts :contacts} peer-state]
        [:div
         [:div
          [:input {:ref "put-key" :placeholder "Key"}]
@@ -192,42 +195,32 @@
                       :let [exp (-> k expiration js/Date.
                                     (.toLocaleString "en-GB"))]]
                   [[:li {:key k} (<< "~{k} (~{exp}): ~{v}")]])])]
-        (let [{:keys [left right]} contact-addresses
-              contacts-list
-              (fn [title items]
-                [:div
-                 [:div.contact
-                  {:on-click #(reset! contacts (for [c items] [address c]))}
-                  title]
-                 [:ul
-                  (for [[ip port :as c] (sort items)]
-                    [:li.contact
-                     {:key c
-                      :on-click #(reset! contacts [[address c]])}
-                     ip ":" port])]])]
-          [:div
-           [:div.contact
-            {:on-click #(reset! contacts (for [c (union left right)]
-                                           [address c]))}
-            "Contacts"]
-           [:ul
-            [:li (contacts-list "Left" left)]
-            [:li (contacts-list "Right" right)]]])])]))
+        [:div
+         [:div.contact
+          {:on-click #(reset! contacts (for [c p-contacts] [address c]))}
+          "Contacts"
+          [:ul
+           (for [[ip port :as c] (sort p-contacts)]
+             [:li.contact
+              {:key c
+               :on-click #(reset! contacts [[address c]])}
+              ip ":" port])]]]])]))
 
 (rum/defcs dht
   < (rum/local {} ::ips)
   < (rum/local {} ::curator-ws)
   < (rum/local #{} ::peers)
-  < (rum/local 0 ::total)
+  < (rum/local {} ::peer-totals)
   < (rum/local nil ::selected-peer)
   < (rum/local [] ::selected-contacts)
   < (let [simulators (comp first :rum/args)
           sync-simulators
-          (fn [state old-sims sims]
+          (fn sync-simulators [state old-sims sims]
             (let [del-sims (difference old-sims sims)
                   channels (map @(::curator-ws state) del-sims)]
               (swap! (::ips state) #(remove-vals del-sims %))
               (swap! (::curator-ws state) #(apply dissoc % del-sims))
+              (swap! (::peer-totals state) #(apply dissoc % del-sims))
               (run! async/close! channels))
             (go
               (let [add-sims (difference sims old-sims)
@@ -238,14 +231,14 @@
                     add-ips (for [[sim ips] (map vector add-sims res)
                                   ip ips]
                               [ip sim])
+                    curator-path "/dht/peer-addresses?max-total=100"
                     channels (<! (async/map
                                   vector
-                                  (map #(connect-ws % "/dht/peer-addresses")
-                                       add-sims)))]
+                                  (map #(connect-ws % curator-path) add-sims)))
+                    add-curator-ws (map vector add-sims channels)]
                 (swap! (::ips state) #(apply conj % add-ips))
-                (swap! (::curator-ws state)
-                       #(apply conj % (map vector add-sims channels)))
-                (doseq [ws-c channels]
+                (swap! (::curator-ws state) #(apply conj % add-curator-ws))
+                (doseq [[sim ws-c] add-curator-ws]
                   (go-loop [{[header peers total] :message} (<! ws-c)]
                     (when header
                       (swap! (::peers state)
@@ -254,9 +247,12 @@
                                :add union
                                :delete difference)
                              peers)
-                      (reset! (::total state) total)
+                      (swap! (::peer-totals state) assoc sim total)
                       (recur (<! ws-c)))))))
-            state)]
+            (assoc state ::reload
+                   (fn []
+                     (sync-simulators state sims #{})
+                     (sync-simulators state #{} sims))))]
       {:did-mount
        (fn [state]
          (sync-simulators state #{} (simulators state)))
@@ -294,12 +290,14 @@
               (request :delete (ips ip) (<< "/dht/peer/~{ip}/~{port}")))))]
     [:div
      [:h3 "DHT"]
-     [:div (for [[sim ips] (group-by second @(::ips state))]
-             [:div {:key sim} sim ": " (join ", " (map first ips))])]
+     [:div
+      [:button {:on-click (::reload state)} "Reload"]
+      (for [[sim ips] (group-by second @(::ips state))]
+        [:div {:key sim} sim ": " (join ", " (map first ips))])]
      [:.dht
       [:.peers
        [:div.horizontal
-        [:div "Peers: " @(::total state)]
+        [:div "Peers: " (reduce + (vals @(::peer-totals state)))]
         [:div
          [:input {:ref "create-count" :default-value 3}]
          [:button {:on-click create-peers} "Create peers"]]
@@ -307,5 +305,5 @@
           [:div
            [:input {:ref "terminate-count" :default-value 3}]
            [:button {:on-click terminate-peers} "Terminate peers"]])]
-       (graph peers selected-peer @contacts)]
+       (graph peers selected-peer contacts)]
       (peer selected-peer contacts ips)]]))

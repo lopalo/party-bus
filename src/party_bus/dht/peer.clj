@@ -21,7 +21,8 @@
 
 (def options
   {:contacts {:ping-period 3000
-              :stabilization-step 1
+              :pointers-step 1
+              :stabilization-step 2
               :stabilization-period 6000}
    :storage {:max-ttl 3600000
              :default-ttl 600000
@@ -46,16 +47,12 @@
 
 (def ^:private ^BigInteger two (biginteger 2))
 
-(defn- direction [origin hash-val]
-  (if (< hash-val origin) :left :right))
-
-(defn- pointers [origin sign step]
-  (for [n (range 0 N step)
+(defn- pointers [origin step]
+  (for [sign [- +]
+        n (range 0 N step)
         :let [v (sign origin (.pow two n))]
         :when (< 0 v max-hash)]
     v))
-
-(def ^:private distances (into (sorted-set) (pointers 0 + 1)))
 
 (defn- distance [h h']
   (abs (- h' h)))
@@ -63,17 +60,29 @@
 (defn- nearest-address [p hash-val]
   (let [state (get-state p)
         h (:hash state)
-        contacts (get-in state [:contacts (direction h hash-val)])
-        [_ address] (first (rsubseq contacts < (distance h hash-val)))]
-    (or address (get-address p))))
+        contacts (get-in state [:contacts :pointers])
+        pointers' (conj (keys contacts) h)
+        pointer (apply min-key (partial distance hash-val) pointers')]
+    (if (= pointer h)
+      (get-address p)
+      (first (contacts pointer)))))
 
 (defn- insert-contact [p address]
   (let [h (-> p get-state :hash)
-        h' (hash- address)
-        dist (first (subseq distances >= (distance h h')))]
-    (when (and dist (not= address (get-address p)))
-      (update-state-in p [:contacts (direction h h') dist]
-                       #(if % % address)))))
+        hash-val (hash- address)
+        step (get-in options [:contacts :pointers-step])
+        pointers' (conj (pointers h step) h)
+        pointer (apply min-key (partial distance hash-val) pointers')]
+    (when-not (= pointer h)
+      (update-state-in
+       p [:contacts :pointers]
+       (fn [contacts]
+         (let [[_ hash-val'] (contacts pointer)]
+           (if (or (nil? hash-val')
+                   (< (distance hash-val pointer)
+                      (distance hash-val' pointer)))
+             (assoc contacts pointer [address hash-val])
+             contacts)))))))
 
 (defn- insert-seeds [p]
   (run! (partial insert-contact p)
@@ -150,54 +159,46 @@
 (defmulti period-handler (fn [p id] id))
 
 (defmethod period-handler :ping [p _]
-  (let [ping
-        (fn [dir]
-          (apply
-           md/zip
-           (for [[dist address'] (get-in (get-state p) [:contacts dir])]
-             (let [[req-id d] (create-request p)]
-               (send-to p address' {:type :ping :request-id req-id})
-               (let-flow
-                [{timeout? :timeout?} d]
-                (when timeout?
-                  (update-state-in p [:contacts dir] dissoc dist)))))))]
-    (md/zip
-     (ping :left)
-     (ping :right))))
+  (apply
+   md/zip
+   (for [[pointer [address]] (get-in (get-state p) [:contacts :pointers])]
+     (let [[req-id d] (create-request p)]
+       (send-to p address {:type :ping :request-id req-id})
+       (let-flow
+        [{timeout? :timeout?} d]
+        (when timeout?
+          (update-state-in
+           p [:contacts :pointers]
+           (fn [contacts]
+             (let [[address'] (contacts pointer)]
+               (if (= address address')
+                 (dissoc contacts pointer)
+                 contacts))))))))))
 
 (defmethod period-handler :stabilization [p _]
   (let [address (get-address p)
         state (get-state p)
-        cs (:contacts state)
-        empty-contacts? (-> (:left cs) (merge (:right cs)) empty?)
-        h (:hash state)
-        step (get-in options [:contacts :stabilization-step])
-        stabilize
-        (fn [dir]
-          (apply
-           md/zip
-           (for [pointer (pointers h (if (= dir :left) - +) step)
-                 :let [nearest-addr (nearest-address p pointer)]
-                 :when (not= nearest-address address)]
-             (let [[req-id d] (create-request p)]
-               (send-to p nearest-addr
-                        {:type :find-peer
-                         :hash pointer
-                         :flags {:trace-route false
-                                 :empty 0}
-                         :response-address address
-                         :request-id req-id
-                         :route []})
-               (let-flow
-                [{timeout? :timeout? address' :data} d]
-                (when-not timeout?
-                  (insert-contact p address')))))))]
-
-    (when empty-contacts?
+        step (get-in options [:contacts :stabilization-step])]
+    (when (empty? (:contacts state))
       (insert-seeds p))
-    (md/zip
-     (stabilize :left)
-     (stabilize :right))))
+    (apply
+     md/zip
+     (for [pointer (pointers (:hash state) step)
+           :let [nearest-addr (nearest-address p pointer)]
+           :when (not= nearest-address address)]
+       (let [[req-id d] (create-request p)]
+         (send-to p nearest-addr
+                  {:type :find-peer
+                   :hash pointer
+                   :flags {:trace-route false
+                           :empty 0}
+                   :response-address address
+                   :request-id req-id
+                   :route []})
+         (let-flow
+          [{timeout? :timeout? address' :data} d]
+          (when-not timeout?
+            (insert-contact p address'))))))))
 
 (defmethod period-handler :expired-kv-cleanup [p _]
   (update-state-in
@@ -315,8 +316,7 @@
                        {:hash nil
                         :contacts
                         {:seeds (set contacts)
-                         :left (sorted-map)
-                         :right (sorted-map)}
+                         :pointers (sorted-map)}
                         :storage
                         {:data {}
                          :expiration u/index}
