@@ -2,9 +2,9 @@
   (:require [clojure.string :refer [join]]
             [medley.core :refer [abs]]
             [gloss.io :refer [encode decode]]
-            [manifold.deferred :as md :refer [let-flow]]
+            [manifold.deferred :as md]
             [digest :refer [sha1]]
-            [party-bus.utils :as u]
+            [party-bus.utils :as u :refer [let<]]
             [party-bus.dht
              [peer-interface :as p :refer [get-address
                                            get-state
@@ -17,13 +17,16 @@
            [aleph.udp UdpPacket]
            [party_bus.dht.core Period ControlCommand Init Terminate]))
 
-(set! *warn-on-reflection* true)
+(def ^:private N 160)
 
 (def options
-  {:contacts {:ping-period 3000
-              :pointers-step 1
-              :stabilization-step 2
-              :stabilization-period 6000}
+  {:contacts {:pointers-step 1
+              :ping {:period 4000
+                     :timeout 3000}
+              :stabilization {:period 6000
+                              :step 1
+                              :range N
+                              :timeout 5000}}
    :storage {:max-ttl 3600000
              :default-ttl 600000
              :expired-cleanup-period 1000}
@@ -40,16 +43,16 @@
       (BigInteger. 16)
       bigint))
 
-(def ^:private N 160)
+;TODO: optimization
 
 (def ^:private max-hash
   (as-> "f" $ (repeat 40 $) (apply str $) (BigInteger. ^String $ 16)))
 
 (def ^:private ^BigInteger two (biginteger 2))
 
-(defn- pointers [origin step]
+(defn- pointers [origin n step]
   (for [sign [- +]
-        n (range 0 N step)
+        n (range 0 n step)
         :let [v (sign origin (.pow two n))]
         :when (< 0 v max-hash)]
     v))
@@ -71,7 +74,7 @@
   (let [h (-> p get-state :hash)
         hash-val (hash- address)
         step (get-in options [:contacts :pointers-step])
-        pointers' (conj (pointers h step) h)
+        pointers' (conj (pointers h N step) h)
         pointer (apply min-key (partial distance hash-val) pointers')]
     (when-not (= pointer h)
       (update-state-in
@@ -88,13 +91,16 @@
   (run! (partial insert-contact p)
         (get-in (get-state p) [:contacts :seeds])))
 
-(defn- create-request [p]
-  (let [d (create-deferred p)
-        req-id (update-state-in p [:request-count] inc)]
-    (update-state-in p [:requests] assoc req-id d)
-    (md/finally d #(update-state-in p [:requests] dissoc req-id))
-    (md/timeout! d (:request-timeout options) {:timeout? true})
-    [req-id d]))
+(defn- create-request
+  ([p]
+   (create-request p (:request-timeout options)))
+  ([p timeout]
+   (let [d (create-deferred p)
+         req-id (update-state-in p [:request-count] inc)]
+     (update-state-in p [:requests] assoc req-id d)
+     (md/finally d #(update-state-in p [:requests] dissoc req-id))
+     (md/timeout! d timeout {:timeout? true})
+     [req-id d])))
 
 (defn- resolve-request [p message]
   (when-some [d (get-in (get-state p) [:requests (:request-id message)])]
@@ -139,9 +145,9 @@
 (defmethod handler Init [p _]
   (update-state-in p [:hash] (constantly (-> p get-address hash-)))
   (insert-seeds p)
-  (create-period p :ping (get-in options [:contacts :ping-period]))
+  (create-period p :ping (get-in options [:contacts :ping :period]))
   (create-period p :stabilization
-                 (get-in options [:contacts :stabilization-period]))
+                 (get-in options [:contacts :stabilization :period]))
   (create-period p :expired-kv-cleanup
                  (get-in options [:storage :expired-cleanup-period])))
 
@@ -162,31 +168,31 @@
   (apply
    md/zip
    (for [[pointer [address]] (get-in (get-state p) [:contacts :pointers])]
-     (let [[req-id d] (create-request p)]
+     (let [timeout (get-in options [:contacts :ping :timeout])
+           [req-id d] (create-request p timeout)]
        (send-to p address {:type :ping :request-id req-id})
-       (let-flow
-        [{timeout? :timeout?} d]
-        (when timeout?
-          (update-state-in
-           p [:contacts :pointers]
-           (fn [contacts]
-             (let [[address'] (contacts pointer)]
-               (if (= address address')
-                 (dissoc contacts pointer)
-                 contacts))))))))))
+       (let< [{timeout? :timeout?} d]
+         (when timeout?
+           (update-state-in
+            p [:contacts :pointers]
+            (fn [contacts]
+              (let [[address'] (contacts pointer)]
+                (if (= address address')
+                  (dissoc contacts pointer)
+                  contacts))))))))))
 
 (defmethod period-handler :stabilization [p _]
   (let [address (get-address p)
         state (get-state p)
-        step (get-in options [:contacts :stabilization-step])]
+        opts (get-in options [:contacts :stabilization])]
     (when (empty? (:contacts state))
       (insert-seeds p))
     (apply
      md/zip
-     (for [pointer (pointers (:hash state) step)
+     (for [pointer (pointers (:hash state) (:range opts) (:step opts))
            :let [nearest-addr (nearest-address p pointer)]
            :when (not= nearest-address address)]
-       (let [[req-id d] (create-request p)]
+       (let [[req-id d] (create-request p (:timeout opts))]
          (send-to p nearest-addr
                   {:type :find-peer
                    :hash pointer
@@ -195,10 +201,9 @@
                    :response-address address
                    :request-id req-id
                    :route []})
-         (let-flow
-          [{timeout? :timeout? address' :data} d]
-          (when-not timeout?
-            (insert-contact p address'))))))))
+         (let< [{timeout? :timeout? address' :data} d]
+           (when-not timeout?
+             (insert-contact p address'))))))))
 
 (defmethod period-handler :expired-kv-cleanup [p _]
   (update-state-in
@@ -274,12 +279,12 @@
                   :key k
                   :value v
                   :ttl ttl})
-        (let-flow [{:keys [timeout? data route]} d]
-                  (if timeout?
-                    ::timeout
-                    {:ttl ttl
-                     :address data
-                     :route route}))))))
+        (let< [{:keys [timeout? data route]} d]
+          (if timeout?
+            ::timeout
+            {:ttl ttl
+             :address data
+             :route route}))))))
 
 (defmethod cmd-handler :get [p _ {k :key trace? :trace?}]
   (let [key-hash (hash- k)
@@ -303,13 +308,12 @@
                   :request-id req-id
                   :route route
                   :key k})
-        (let-flow
-         [{timeout? :timeout? {:keys [ttl value]} :data route :route} d]
-         (if timeout?
-           ::timeout
-           {:ttl ttl
-            :value value
-            :route route}))))))
+        (let< [{timeout? :timeout? {:keys [ttl value]} :data route :route} d]
+          (if timeout?
+            ::timeout
+            {:ttl ttl
+             :value value
+             :route route}))))))
 
 (defn create-peer [curator host port contacts]
   (curator/create-peer curator host port handler

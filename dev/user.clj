@@ -1,12 +1,12 @@
 (ns user
   (:require clojure.stacktrace
             [manifold
-             [deferred :as md :refer [let-flow]]
+             [deferred :as md]
              [stream :as ms]]
             [aleph.udp :as udp]
             [gloss.io :refer [encode decode]]
             [figwheel-sidecar.repl-api :as fig]
-            [party-bus.utils :refer [socket-address]]
+            [party-bus.utils :refer [let< socket-address]]
             [party-bus.dht
              [curator :as c]
              [peer-interface :as p]
@@ -59,14 +59,13 @@
            (p/create-deferred p)
            (p/create-period p :foo 2000)
            (p/create-period p :bar 2000)
-           (let-flow [t1 (md/timeout! (p/create-deferred p) 3000 :timeout-1)
-                      cp (do t1 (p/cancel-period p :foo))
-                      t2 (md/timeout! (p/create-deferred p) 3000 :timeout-2)]
-                     (prn "Complete init" t1 t2 cp
-                          (p/update-state p (constantly :completed)))
-                     (md/chain
-                      (md/timeout! (p/create-deferred p) 2000 :timeout-3)
-                      (fn [_] (p/terminate p)))))
+           (let< [t1 (md/timeout! (p/create-deferred p) 3000 :timeout-1)
+                  _ (p/cancel-period p :foo)
+                  t2 (md/timeout! (p/create-deferred p) 3000 :timeout-2)
+                  _ (prn "Complete init" t1 t2
+                         (p/update-state p (constantly :completed)))
+                  _ (md/timeout! (p/create-deferred p) 2000 :timeout-3)]
+             (p/terminate p)))
          Period (prn "Period:" (:id msg))
          Terminate (prn "Terminate")))
      :initial)

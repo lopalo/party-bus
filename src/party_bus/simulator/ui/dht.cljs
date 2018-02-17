@@ -5,7 +5,7 @@
             [medley.core :refer [remove-vals]]
             [cljs-hash.sha1 :refer [sha1]]
             [rum.core :as rum :refer [react]]
-            [party-bus.simulator.ui.core :refer [request connect-ws]])
+            [party-bus.simulator.ui.core :refer [zip! request connect-ws]])
   (:require-macros [clojure.core.strint :refer [<<]]
                    [cljs.core.async.macros :refer [go go-loop]]))
 
@@ -25,16 +25,16 @@
 
 (rum/defc graph
   < rum/reactive
-  [peers selected-peer contacts]
+  [peers *selected-peer *contacts]
   (let [width 840
         height 800
         radius 350
         center [(/ width 2) (/ height 2)]
         [cx cy] center
-        selected-peer' (react selected-peer)
-        contacts' (react contacts)
-        contact-peers (->> contacts' (apply concat) set)
-        selected-peers (if selected-peer' #{selected-peer'})
+        selected-peer (react *selected-peer)
+        contacts (react *contacts)
+        contact-peers (->> contacts (apply concat) set)
+        selected-peers (if selected-peer #{selected-peer})
         peer
         (fn [address color]
           (let [h (hash- address)
@@ -47,7 +47,7 @@
               :stroke :black
               :stroke-width 1
               :fill color
-              :on-click #(reset! selected-peer address)}]))]
+              :on-click #(reset! *selected-peer address)}]))]
     [:svg.graph
      {:width width
       :height height}
@@ -59,10 +59,10 @@
        :stroke-width 1
        :fill :white
        :on-click (fn []
-                   (reset! selected-peer nil)
-                   (reset! contacts []))}]
+                   (reset! *selected-peer nil)
+                   (reset! *contacts []))}]
      (concat
-      (for [[p p'] contacts'
+      (for [[p p'] contacts
             :let [[x y] (position center radius p)
                   [x' y'] (position center radius p')]]
         [:path {:key (str (hash- p) "-" (hash- p'))
@@ -74,65 +74,65 @@
       (map #(peer % :lightgreen) (difference contact-peers selected-peers))
       (map #(peer % :orange) selected-peers))]))
 
-(def peer-ui-state
+(def peer-details-ui-state
   {:address nil
    :ws-c nil
    :peer-state nil
    :last-request nil})
 
-(rum/defcs peer
+(rum/defcs peer-details
   < rum/reactive
-  < (rum/local peer-ui-state ::local)
+  < (rum/local peer-details-ui-state ::local)
   < {:after-render
      (fn [state]
-       (let [[selected-peer contacts ips] (:rum/args state)
-             [ip port :as selected-peer'] @selected-peer
-             local (::local state)
-             {:keys [address ws-c]} @local
-             active? #(= selected-peer' (:address @local))]
-         (when (not= selected-peer' address)
+       (let [[*selected-peer *contacts ip->sim] (:rum/args state)
+             [ip port :as selected-peer] @*selected-peer
+             *local (::local state)
+             {:keys [address ws-c]} @*local
+             active? #(= selected-peer (:address @*local))]
+         (when (not= selected-peer address)
            (when ws-c (async/close! ws-c))
-           (reset! local (assoc peer-ui-state :address selected-peer'))
-           (when selected-peer'
+           (reset! *local (assoc peer-details-ui-state :address selected-peer))
+           (when selected-peer
              (go
-               (let [ws-c (<! (connect-ws (ips ip)
+               (let [ws-c (<! (connect-ws (ip->sim ip)
                                           (<< "/dht/peer/~{ip}/~{port}")))]
                  (when (active?)
-                   (swap! local assoc :ws-c ws-c)
+                   (swap! *local assoc :ws-c ws-c)
                    (loop [{peer-state :message} (<! ws-c)]
                      (when (and peer-state (active?))
                        (let [p-contacts (:contacts peer-state)]
-                         (if-not (:peer-state @local)
-                           (reset! contacts
-                                   (for [c p-contacts] [selected-peer' c]))
-                           (swap! contacts
+                         (if-not (:peer-state @*local)
+                           (reset! *contacts
+                                   (for [c p-contacts] [selected-peer c]))
+                           (swap! *contacts
                                   (partial remove
                                            (fn [[p p']]
-                                             (and (= p selected-peer')
+                                             (and (= p selected-peer)
                                                   (not (p-contacts p'))))))))
-                       (swap! local assoc :peer-state peer-state)
+                       (swap! *local assoc :peer-state peer-state)
                        (recur (<! ws-c)))))
                  (async/close! ws-c))))))
        state)
      :will-unmount
      (fn [state]
        (some-> state ::local deref :ws-c async/close!))}
-  [state _ contacts ips]
-  (let [local (::local state)
-        {:keys [address peer-state]} @local
+  [state _ *contacts ip->sim]
+  (let [*local (::local state)
+        {:keys [address peer-state]} @*local
         [ip port] address
         input-val #(.-value (rum/ref state %))
-        show-route #(reset! contacts
-                            (partition 2 1 (-> @local :last-request :route)))
+        show-route #(reset! *contacts
+                            (partition 2 1 (-> @*local :last-request :route)))
         set-last-request
         (fn [k method response]
-          (when (= address (:address @local))
+          (when (= address (:address @*local))
             (if (map? response)
               (do
-                (swap! local assoc :last-request
+                (swap! *local assoc :last-request
                        (assoc response :key k :method method))
                 (show-route))
-              (swap! local assoc :last-request response))))
+              (swap! *local assoc :last-request response))))
         do-put
         (fn []
           (go
@@ -142,7 +142,7 @@
                           :value (input-val "put-value")
                           :ttl (if (js/isNaN ttl) 0 ttl)
                           :trace? true}
-                  res (<! (request :put (ips ip)
+                  res (<! (request :put (ip->sim ip)
                                    (<< "/dht/put/~{ip}/~{port}")
                                    :edn-params params))]
               (set-last-request k :put (:body res)))))
@@ -153,7 +153,7 @@
             (let [k (input-val "get-key")
                   params {:key k
                           :trace true}
-                  res (<! (request :get (ips ip)
+                  res (<! (request :get (ip->sim ip)
                                    (<< "/dht/get/~{ip}/~{port}")
                                    :query-params params))]
               (set-last-request k :get (:body res)))))]
@@ -163,7 +163,7 @@
         [:strong ip ":" port]
         [:div "Hash: " (hash- address)]
         [:button
-         {:on-click #(request :delete (ips ip)
+         {:on-click #(request :delete (ip->sim ip)
                               (<< "/dht/peer/~{ip}/~{port}"))}
          "Terminate"]])
      (if-let [{storage :storage p-contacts :contacts} peer-state]
@@ -171,12 +171,12 @@
         [:div
          [:input {:ref "put-key" :placeholder "Key"}]
          [:input {:ref "put-value" :placeholder "Value"}]
-         [:input {:ref "put-ttl" :default-value 10000 :placeholder "TTL"}]
+         [:input {:ref "put-ttl" :default-value 600000 :placeholder "TTL"}]
          [:button {:on-click do-put} "Put"]]
         [:div
          [:input {:ref "get-key" :placeholder "Key"}]
          [:button {:on-click do-get} "Get"]]
-        (if-let [last-request (:last-request @local)]
+        (if-let [last-request (:last-request @*local)]
           [:div
            [:div "Last request"]
            (if (map? last-request)
@@ -197,48 +197,53 @@
                   [[:li {:key k} (<< "~{k} (~{exp}): ~{v}")]])])]
         [:div
          [:div.contact
-          {:on-click #(reset! contacts (for [c p-contacts] [address c]))}
+          {:on-click #(reset! *contacts (for [c p-contacts] [address c]))}
           "Contacts"
           [:ul
            (for [[ip port :as c] (sort p-contacts)]
              [:li.contact
               {:key c
-               :on-click #(reset! contacts [[address c]])}
+               :on-click #(reset! *contacts [[address c]])}
               ip ":" port])]]]])]))
 
 (rum/defcs dht
-  < (rum/local {} ::ips)
-  < (rum/local {} ::curator-ws)
+  < (rum/local {} ::ip->sim)
+  < (rum/local {} ::sim->ws)
+  < (rum/local {} ::sim->total)
   < (rum/local #{} ::peers)
-  < (rum/local {} ::peer-totals)
   < (rum/local nil ::selected-peer)
   < (rum/local [] ::selected-contacts)
   < (let [simulators (comp first :rum/args)
+          max-total 120
           sync-simulators
           (fn sync-simulators [state old-sims sims]
             (let [del-sims (difference old-sims sims)
-                  channels (map @(::curator-ws state) del-sims)]
-              (swap! (::ips state) #(remove-vals del-sims %))
-              (swap! (::curator-ws state) #(apply dissoc % del-sims))
-              (swap! (::peer-totals state) #(apply dissoc % del-sims))
-              (run! async/close! channels))
+                  del-wss (map @(::sim->ws state) del-sims)]
+              (swap! (::ip->sim state) #(remove-vals del-sims %))
+              (swap! (::sim->ws state) #(apply dissoc % del-sims))
+              (swap! (::sim->total state) #(apply dissoc % del-sims))
+              (run! async/close! del-wss))
             (go
               (let [add-sims (difference sims old-sims)
                     res (<! (async/map
                              #(map :body %&)
                              (map #(request :get % "/dht/ip-addresses")
                                   add-sims)))
-                    add-ips (for [[sim ips] (map vector add-sims res)
-                                  ip ips]
-                              [ip sim])
-                    curator-path "/dht/peer-addresses?max-total=100"
-                    channels (<! (async/map
-                                  vector
-                                  (map #(connect-ws % curator-path) add-sims)))
-                    add-curator-ws (map vector add-sims channels)]
-                (swap! (::ips state) #(apply conj % add-ips))
-                (swap! (::curator-ws state) #(apply conj % add-curator-ws))
-                (doseq [[sim ws-c] add-curator-ws]
+                    add-ip->sim (for [[sim ips] (map vector add-sims res)
+                                      ip ips]
+                                  [ip sim])
+                    max-total' (->> state ::sim->total deref
+                                    count (max 1) (/ max-total) int)
+                    connect
+                    (fn [sim]
+                      (connect-ws sim
+                                  "/dht/peer-addresses"
+                                  {:max-total max-total'}))
+                    add-wss (<! (apply zip! (map connect add-sims)))
+                    add-sim->ws (map vector add-sims add-wss)]
+                (swap! (::ip->sim state) #(apply conj % add-ip->sim))
+                (swap! (::sim->ws state) #(apply conj % add-sim->ws))
+                (doseq [[sim ws-c] add-sim->ws]
                   (go-loop [{[header peers total] :message} (<! ws-c)]
                     (when header
                       (swap! (::peers state)
@@ -247,7 +252,7 @@
                                :add union
                                :delete difference)
                              peers)
-                      (swap! (::peer-totals state) assoc sim total)
+                      (swap! (::sim->total state) assoc sim total)
                       (recur (<! ws-c)))))))
             (assoc state ::reload
                    (fn []
@@ -263,47 +268,46 @@
        (fn [state]
          (sync-simulators state (simulators state) #{}))})
   [state simulators]
-  (let [ips @(::ips state)
-        ips' (-> ips keys vec)
+  (let [ip->sim @(::ip->sim state)
+        ips (-> ip->sim keys vec)
         peers @(::peers state)
-        selected-peer (::selected-peer state)
-        contacts (::selected-contacts state)
-        op-repeat #(->> % (rum/ref state) .-value js/parseInt range)
+        *selected-peer (::selected-peer state)
+        *contacts (::selected-contacts state)
+        op-amount #(->> % (rum/ref state) .-value js/parseInt)
         create-peers
         (fn []
           (let [peers' (vec peers)]
-            (doseq [_ (op-repeat "create-count")
-                    :let [ip (rand-nth ips')
+            (doseq [_ (range (op-amount "create-amount"))
+                    :let [ip (rand-nth ips)
                           p-contacts
                           (if (seq peers')
                             (map #(join ":" %)
                                  (repeatedly 4 #(rand-nth peers')))
                             [])]]
-              (request :post (ips ip)
+              (request :post (ip->sim ip)
                        (str "/dht/peer/" ip)
                        :edn-params p-contacts))))
         terminate-peers
         (fn []
-          (let [peers' (vec peers)]
-            (doseq [_ (op-repeat "terminate-count")
-                    :let [[ip port] (rand-nth peers')]]
-              (request :delete (ips ip) (<< "/dht/peer/~{ip}/~{port}")))))]
+          (doseq [[ip port] (take (op-amount "terminate-amount")
+                                  (shuffle peers))]
+            (request :delete (ip->sim ip) (<< "/dht/peer/~{ip}/~{port}"))))]
     [:div
      [:h3 "DHT"]
      [:div
       [:button {:on-click (::reload state)} "Reload"]
-      (for [[sim ips] (group-by second @(::ips state))]
-        [:div {:key sim} sim ": " (join ", " (map first ips))])]
+      (for [[sim sim-ips] (group-by second @(::ip->sim state))]
+        [:div {:key sim} sim ": " (join ", " (map first sim-ips))])]
      [:.dht
       [:.peers
        [:div.horizontal
-        [:div "Peers: " (reduce + (vals @(::peer-totals state)))]
+        [:div "Peers: " (reduce + (vals @(::sim->total state)))]
         [:div
-         [:input {:ref "create-count" :default-value 3}]
+         [:input {:ref "create-amount" :default-value 3}]
          [:button {:on-click create-peers} "Create peers"]]
         (if (seq peers)
           [:div
-           [:input {:ref "terminate-count" :default-value 3}]
+           [:input {:ref "terminate-amount" :default-value 3}]
            [:button {:on-click terminate-peers} "Terminate peers"]])]
-       (graph peers selected-peer contacts)]
-      (peer selected-peer contacts ips)]]))
+       (graph peers *selected-peer *contacts)]
+      (peer-details *selected-peer *contacts ip->sim)]]))

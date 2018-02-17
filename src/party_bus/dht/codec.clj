@@ -2,8 +2,6 @@
   (:require [gloss.core :as g]
             [party-bus.utils :refer [address-c]]))
 
-(set! *warn-on-reflection* true)
-
 (def zeros (repeat 0))
 
 ;SHA-1 hash of key or peer's address

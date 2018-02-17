@@ -22,6 +22,7 @@
   :source-paths ["src"]
   :main ^:skip-aot party-bus.main
   :target-path "target/%s"
+  :global-vars {*warn-on-reflection* true}
   :plugins [[lein-figwheel "0.5.14"]
             [lein-cljsbuild "1.1.7" :exclusions [[org.clojure/clojure]]]]
   :cljsbuild {:builds
@@ -45,6 +46,7 @@
                            :optimizations :advanced
                            :pretty-print false}}]}
   :figwheel {:css-dirs ["resources/public/css"]}
+  :cljfmt {:indents {let< [[:block 1]]}}
   :profiles {:uberjar {:aot :all}
              :repl {:dependencies [[binaryage/devtools "0.9.4"]
                                    [figwheel-sidecar "0.5.14"]

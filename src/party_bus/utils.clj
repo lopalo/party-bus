@@ -1,9 +1,8 @@
 (ns party-bus.utils
   (:require [clojure.string :refer [split join]]
-            [gloss.core :as g])
+            [gloss.core :as g]
+            [manifold.deferred :as md])
   (:import [java.net InetSocketAddress]))
-
-(set! *warn-on-reflection* true)
 
 (defn now-ms []
   (System/currentTimeMillis))
@@ -59,3 +58,12 @@
   (mapcat second (apply subseq (:inverse idx) args)))
 
 (def index (Index. (hash-map) (sorted-map)))
+
+(defmacro let< [bindings & body]
+  "Similar to Manifold's let-flow, but with less magic."
+  ((fn self [name+forms]
+     (if (seq name+forms)
+       (let [[[n form] & name+forms'] name+forms]
+         `(md/chain ~form (fn [~n] ~(self name+forms'))))
+       `(do ~@body)))
+   (partition 2 bindings)))

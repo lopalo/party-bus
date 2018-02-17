@@ -1,10 +1,13 @@
 (ns party-bus.simulator.ui.core
-  (:require [cljs.core.async :refer [chan <!]]
+  (:require [cljs.core.async :as async :refer [chan <!]]
             [cljs-http.client :as http]
             [chord.client :refer [ws-ch]])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
 (goog-define INITIAL-ADDRESS "")
+
+(defn zip! [& chs]
+  (async/map vector chs 1))
 
 (defn request [method address path & {:as opts}]
   (http/request (merge {:method method
@@ -12,9 +15,15 @@
                         :with-credentials? false}
                        opts)))
 
-(defn connect-ws [address path]
-  (go
-    (let [{:keys [ws-channel]} (<! (ws-ch (str "ws://" address path)
-                                          {:format :edn}))]
-      ws-channel)))
+(defn connect-ws
+  ([address path]
+   (connect-ws address path nil))
+  ([address path params]
+   (go
+     (let [query-str (if (map? params)
+                       (str "?" (http/generate-query-string params))
+                       "")
+           url (str "ws://" address path query-str)
+           {:keys [ws-channel]} (<! (ws-ch url {:format :edn}))]
+       ws-channel))))
 

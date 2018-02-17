@@ -8,8 +8,6 @@
             Curator
             Period]))
 
-(set! *warn-on-reflection* true)
-
 (defprotocol PeerInterface
   (get-address [this])
   (get-state [this])
