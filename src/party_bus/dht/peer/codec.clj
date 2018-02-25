@@ -1,4 +1,4 @@
-(ns party-bus.dht.codec
+(ns party-bus.dht.peer.codec
   (:require [gloss.core :as g]
             [party-bus.utils :refer [address-c]]))
 
@@ -22,7 +22,9 @@
           :ping :pong
           :find-peer :find-peer-response
           :find-value :find-value-response
-          :store :store-response))
+          :store :store-response
+          :find-trie :find-trie-response
+          :store-trie))
 
 (g/defcodec ping
   {:type :ping
@@ -32,11 +34,12 @@
   {:type :pong
    :request-id :int64})
 
-(def lookup-request-frame
+(def lookup-frame
   {:hash -hash
    :flags (g/bit-map
            :trace-route 1
-           :empty 7)
+           :respond 1
+           :empty 6)
    :response-address address-c
    :request-id :int64
    :route (g/repeated address-c)})
@@ -48,7 +51,7 @@
 
 (g/defcodec find-peer
   (merge
-   lookup-request-frame
+   lookup-frame
    {:type :find-peer}))
 
 (g/defcodec find-peer-response
@@ -59,7 +62,7 @@
 
 (g/defcodec find-value
   (merge
-   lookup-request-frame
+   lookup-frame
    {:type :find-value
     :key -key}))
 
@@ -72,9 +75,12 @@
 
 (g/defcodec store
   (merge
-   lookup-request-frame
+   lookup-frame
    {:type :store
     :key -key
+    :key-groups (g/bit-map
+                 :trie-leaf 1
+                 :empty 7)
     :value -value
     :ttl :int32}))
 
@@ -83,6 +89,25 @@
    lookup-response-frame
    {:type :store-response
     :data address-c}))
+
+(g/defcodec find-trie
+  (merge
+   lookup-frame
+   {:type :find-trie
+    :prefix -key}))
+
+(g/defcodec find-trie-response
+  (merge
+   lookup-response-frame
+   {:type :find-trie-response
+    :data (g/repeated [-key :int64])}))
+
+(g/defcodec store-trie
+  (merge
+   lookup-frame
+   {:type :store-trie
+    :key -key
+    :amount :int64})) ; 0 means a leaf
 
 (g/defcodec message
   (g/header
@@ -94,5 +119,8 @@
     :find-value find-value
     :find-value-response find-value-response
     :store store
-    :store-response store-response}
+    :store-response store-response
+    :find-trie find-trie
+    :find-trie-response find-trie-response
+    :store-trie store-trie}
    :type))

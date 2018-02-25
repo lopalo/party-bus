@@ -45,7 +45,8 @@
                      (dissoc :request-count)
                      (dissoc :requests)
                      (update :contacts contacts-view)
-                     (update-in [:storage :expiration] :direct))
+                     (update-in [:storage :expiration] :direct)
+                     (update :trie :nodes))
            new-v (view new-st)]
        (if (or (nil? old-st)
                (not= (view old-st) new-v))
@@ -60,6 +61,12 @@
   (md/chain
    (c/control-command curator (u/socket-address ip port)
                       :get {:key key :trace? trace?})
+   edn-response))
+
+(defn- get-trie [curator ip port prefix trace?]
+  (md/chain
+   (c/control-command curator (u/socket-address ip port)
+                      :get-trie {:prefix prefix :trace? trace?})
    edn-response))
 
 (defn make-state [dht-ips]
@@ -83,4 +90,6 @@
    (PUT "/put/:ip/:port" [ip port :<< as-int :as req]
      (put-value curator ip port (edn-body req)))
    (GET "/get/:ip/:port" [ip port :<< as-int key trace :<< as-bool]
-     (get-value curator ip port key trace))))
+     (get-value curator ip port key trace))
+   (GET "/get-trie/:ip/:port" [ip port :<< as-int prefix trace :<< as-bool]
+     (get-trie curator ip port prefix trace))))

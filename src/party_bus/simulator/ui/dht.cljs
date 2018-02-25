@@ -138,9 +138,11 @@
           (go
             (let [ttl (-> "put-ttl" input-val js/parseInt)
                   k (input-val "put-key")
+                  trie? (.-checked (rum/ref state "put-trie"))
                   params {:key k
                           :value (input-val "put-value")
                           :ttl (if (js/isNaN ttl) 0 ttl)
+                          :trie? trie?
                           :trace? true}
                   res (<! (request :put (ip->sim ip)
                                    (<< "/dht/put/~{ip}/~{port}")
@@ -156,7 +158,17 @@
                   res (<! (request :get (ip->sim ip)
                                    (<< "/dht/get/~{ip}/~{port}")
                                    :query-params params))]
-              (set-last-request k :get (:body res)))))]
+              (set-last-request k :get (:body res)))))
+        do-get-trie
+        (fn []
+          (go
+            (let [prefix (input-val "get-trie")
+                  params {:prefix prefix
+                          :trace true}
+                  res (<! (request :get (ip->sim ip)
+                                   (<< "/dht/get-trie/~{ip}/~{port}")
+                                   :query-params params))]
+              (set-last-request prefix :get-trie (:body res)))))]
     [:.peer
      (if address
        [:div
@@ -166,27 +178,34 @@
          {:on-click #(request :delete (ip->sim ip)
                               (<< "/dht/peer/~{ip}/~{port}"))}
          "Terminate"]])
-     (if-let [{storage :storage p-contacts :contacts} peer-state]
+     (if-let [{storage :storage trie :trie p-contacts :contacts} peer-state]
        [:div
         [:div
          [:input {:ref "put-key" :placeholder "Key"}]
          [:input {:ref "put-value" :placeholder "Value"}]
          [:input {:ref "put-ttl" :default-value 600000 :placeholder "TTL"}]
+         [:label
+          "Trie leaf: "
+          [:input {:ref "put-trie" :type "checkbox" :default-checked true}]]
          [:button {:on-click do-put} "Put"]]
         [:div
          [:input {:ref "get-key" :placeholder "Key"}]
          [:button {:on-click do-get} "Get"]]
+        [:div
+         [:input {:ref "get-trie" :placeholder "Prefix"}]
+         [:button {:on-click do-get-trie} "Get Trie"]]
         (if-let [last-request (:last-request @*local)]
           [:div
            [:div "Last request"]
            (if (map? last-request)
-             (let [{:keys [key method route value ttl]} last-request]
+             (let [{:keys [key method route value trie ttl]} last-request]
                [:ul
                 [:li "method: " (name method)]
                 [:li "key: " key]
                 [:li "key hash: " (hash- key)]
                 [:li "hops: " (count route)]
                 (if value [:li "value: " value])
+                (if trie [:li "trie: " (str trie)])
                 (if ttl [:li "ttl " ttl])])
              [:div [:strong (str last-request)]])])
         [:div "Data"
@@ -195,6 +214,9 @@
                       :let [exp (-> k expiration js/Date.
                                     (.toLocaleString "en-GB"))]]
                   [[:li {:key k} (<< "~{k} (~{exp}): ~{v}")]])])]
+        [:div "Trie"
+         [:ul (for [[k n] (sort trie)]
+                [[:li {:key k} (<< "~{k}: ~{n}")]])]]
         [:div
          [:div.contact
           {:on-click #(reset! *contacts (for [c p-contacts] [address c]))}

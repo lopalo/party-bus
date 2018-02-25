@@ -10,8 +10,8 @@
             [party-bus.dht
              [curator :as c]
              [peer-interface :as p]
-             [peer :as peer]
-             [codec :as codec]]
+             [peer :as peer]]
+            [party-bus.dht.peer.codec :as codec]
             [party-bus.simulator.server :as sim])
   (:import [party_bus.dht.core Period Init Terminate]))
 
@@ -28,7 +28,7 @@
                      :port remote-port
                      :message (encode codec/message message)})))
 
-(def curator (c/create-curator 2 nil prn))
+(defonce curator (c/create-curator 2 nil prn))
 
 (defn create-echo-peer [port]
   @(md/catch
@@ -109,9 +109,12 @@
     (deref (c/control-command curator p4 :put {:key "abc"
                                                :value "THE VALUE!!!"
                                                :ttl 10000
-                                               :trace? true}))
+                                               :trace? true
+                                               :trie? true}))
     (prn (deref (c/control-command curator p3 :get {:key "abc"
-                                                    :trace? true}))))
+                                                    :trace? true})))
+    (prn (deref (c/control-command curator p3 :get-trie {:prefix "a"
+                                                         :trace? true}))))
   (c/terminate-all-peers curator)
   (do
     (when simulator
