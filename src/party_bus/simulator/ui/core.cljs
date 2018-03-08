@@ -1,7 +1,10 @@
 (ns party-bus.simulator.ui.core
-  (:require [cljs.core.async :as async :refer [chan <!]]
+  (:require [clojure.string :refer [join]]
+            [cljs.core.async :as async :refer [chan <!]]
+            [rum.core :as rum]
             [cljs-http.client :as http]
-            [chord.client :refer [ws-ch]])
+            [chord.client :refer [ws-ch]]
+            [cljs-hash.sha1 :refer [sha1]])
   (:require-macros [cljs.core.async.macros :refer [go]]))
 
 (goog-define INITIAL-ADDRESS "")
@@ -26,4 +29,30 @@
            url (str "ws://" address path query-str)
            {:keys [ws-channel]} (<! (ws-ch url {:format :edn}))]
        ws-channel))))
+
+(defn store
+  ([initial]
+   (store initial :rum/store))
+  ([initial key]
+   {:will-mount
+    (fn [state]
+      (assoc state key (atom initial)))}))
+
+(defn react-size [*coll]
+  (rum/react (rum/derived-atom [*coll] (random-uuid) count)))
+
+(defn react-vec [*vec]
+  (react-size *vec)
+  (for [idx (-> *vec deref count range)]
+    (rum/cursor *vec idx)))
+
+(defn react-map [*map]
+  (react-size *map)
+  (for [k (keys @*map)]
+    [k (rum/cursor *map k)]))
+
+(defn hash- [x]
+  (sha1 (if (and (vector? x) (= (count x) 2))
+          (join ":" x)
+          x)))
 

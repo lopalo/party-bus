@@ -20,7 +20,7 @@
 (defn- parse-int [^String s]
   (Long. s))
 
-(defn- insert-node-fn [k amount]
+(defn- node-inserter [k amount]
   (fn [trie]
     (-> trie
         ;; Discards a leaf node if there is a non-leaf node
@@ -38,7 +38,7 @@
           address (get-address p)
           nearest-addr (core/nearest-address p key-hash)]
       (if (= nearest-addr address)
-        (update-state-in p [:trie] (insert-node-fn k amount))
+        (update-state-in p [:trie] (node-inserter k amount))
         (core/send-to p nearest-addr
                       {:type :store-trie
                        :hash key-hash
@@ -86,7 +86,7 @@
 (defmethod core/packet-handler :store-trie
   [p _ {k :key amount :amount :as msg}]
   (when-not (core/forward-lookup p msg)
-    (update-state-in p [:trie] (insert-node-fn k amount))))
+    (update-state-in p [:trie] (node-inserter k amount))))
 
 (defmethod core/packet-handler :find-trie [p _ {prfx :prefix :as msg}]
   (when-not (core/forward-lookup p msg)

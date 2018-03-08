@@ -8,7 +8,7 @@
                                                   create-period]]
             [party-bus.dht.peer.core :as core :refer [options]]))
 
-(defn- insert-kv-fn [k v ttl groups]
+(defn- kv-inserter [k v ttl groups]
   (fn [storage]
     (-> storage
         (assoc-in [:data k] v)
@@ -46,7 +46,7 @@
 (defmethod core/packet-handler :store
   [p _ {k :key :keys [value ttl key-groups] :as msg}]
   (when-not (core/forward-lookup p msg)
-    (update-state-in p [:storage] (insert-kv-fn k value ttl key-groups))
+    (update-state-in p [:storage] (kv-inserter k value ttl key-groups))
     (core/respond-lookup p msg :store-response (get-address p))))
 
 (defmethod core/packet-handler :store-response [p _ msg]
@@ -78,7 +78,7 @@
         key-groups {:trie-leaf trie? :empty 0}]
     (if (= nearest-addr address)
       (do
-        (update-state-in p [:storage] (insert-kv-fn k value ttl key-groups))
+        (update-state-in p [:storage] (kv-inserter k value ttl key-groups))
         {:ttl ttl
          :address address
          :route route})

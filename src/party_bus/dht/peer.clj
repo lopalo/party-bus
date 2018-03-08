@@ -7,11 +7,11 @@
              [storage :as storage]
              [trie :as trie]]))
 
-(defn- combine [& handlers]
+(defn- combine [& hooks]
   (fn [p]
-    (doseq [h handlers] (h p))))
+    (doseq [h hooks] (h p))))
 
-(def ^:private handlers
+(def ^:private hooks
   {:init (combine contacts/init
                   storage/init
                   trie/init)
@@ -20,7 +20,7 @@
                        trie/terminate)})
 
 (defn- handler [p msg]
-  (peer-handler p handlers msg))
+  (peer-handler p hooks msg))
 
 (defn create-peer [curator host port contacts]
   (curator/create-peer curator host port handler

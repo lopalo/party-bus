@@ -111,9 +111,9 @@
 
 (defmulti ^:private handler (fn [_ _ msg] (class msg)))
 
-(defmethod handler Init [p handlers _]
+(defmethod handler Init [p hooks _]
   (update-state-in p [:hash] (constantly (-> p get-address hash-)))
-  ((:init handlers) p))
+  ((:init hooks) p))
 
 (defmethod handler Period [p _ {:keys [id]}]
   (period-handler p id))
@@ -124,8 +124,8 @@
 (defmethod handler ControlCommand [p _ {:keys [cmd args]}]
   (cmd-handler p cmd args))
 
-(defmethod handler Terminate [p handlers _]
-  ((:terminate handlers) p))
+(defmethod handler Terminate [p hooks _]
+  ((:terminate hooks) p))
 
 (defmulti period-handler (fn [p id] id))
 

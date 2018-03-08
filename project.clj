@@ -14,7 +14,12 @@
                  [ring/ring-defaults "0.3.1"]
                  [ring-cors "0.1.11"]
                  [compojure "1.6.0"]
-                 [rum "0.10.8"]
+
+                 [rum "0.11.2"]
+                 [cljsjs/antd "3.2.0-0"
+                  :exclusions [cljsjs/react cljsjs/react-dom]]
+                 [antizer "0.2.2"
+                  :exclusions [cljsjs/react cljsjs/react-dom cljsjs/antd]]
                  [cljs-http "0.1.44"]
                  [jarohen/chord "0.8.1"]
                  [digest "1.4.6"]
@@ -24,7 +29,8 @@
   :target-path "target/%s"
   :global-vars {*warn-on-reflection* true}
   :plugins [[lein-figwheel "0.5.14"]
-            [lein-cljsbuild "1.1.7" :exclusions [[org.clojure/clojure]]]]
+            [lein-cljsbuild "1.1.7"
+             :exclusions [[org.clojure/clojure]]]]
   :cljsbuild {:builds
               [{:id "dev"
                 :source-paths ["src"]
@@ -45,7 +51,8 @@
                            :main party-bus.simulator.ui.app
                            :optimizations :advanced
                            :pretty-print false}}]}
-  :figwheel {:css-dirs ["resources/public/css"]}
+  :figwheel {:css-dirs ["resources/public/css"]
+             :ring-handler party-bus.simulator.server/cljsjs-handler}
   :cljfmt {:indents {let< [[:block 1]]}}
   :profiles {:uberjar {:aot :all}
              :repl {:dependencies [[binaryage/devtools "0.9.4"]
