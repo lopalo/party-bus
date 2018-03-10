@@ -27,6 +27,7 @@
                        {:hash nil
                         :contacts
                         {:seeds (set contacts)
+                         :points (sorted-set)
                          :pointers (sorted-map)}
                         :storage
                         {:data {}

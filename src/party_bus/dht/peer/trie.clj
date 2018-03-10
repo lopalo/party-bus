@@ -30,7 +30,9 @@
                 (+ (u/now-ms) (get-in options [:trie :node-ttl]))))))
 
 (defn- subnodes [nodes prfx]
-  (into (sorted-map) (subseq nodes >= prfx < (next-string prfx))))
+  (if (= prfx "")
+    nodes
+    (into (sorted-map) (subseq nodes >= prfx < (next-string prfx)))))
 
 (defn- upcast [p k amount]
   (when-not (= "" k)
@@ -90,7 +92,7 @@
 
 (defmethod core/packet-handler :find-trie [p _ {prfx :prefix :as msg}]
   (when-not (core/forward-lookup p msg)
-    (let [data (-> p get-state :trie :nodes {:trie (subnodes prfx)})]
+    (let [data (-> p get-state :trie :nodes (subnodes prfx) vec)]
       (core/respond-lookup p msg :find-trie-response data))))
 
 (defmethod core/packet-handler :find-trie-response [p _ msg]
@@ -103,7 +105,8 @@
         nearest-addr (core/nearest-address p prefix-hash)
         route (if trace? [address] [])]
     (if (= nearest-addr address)
-      {:trie (subnodes nodes prfx)}
+      {:trie (subnodes nodes prfx)
+       :route route}
       (let [[req-id d] (core/create-request p)]
         (core/send-to p nearest-addr
                       {:type :find-trie
@@ -116,4 +119,7 @@
                        :route route
                        :prefix prfx})
         (let< [{:keys [timeout? data route]} d]
-          (if timeout? ::timeout data))))))
+          (if timeout?
+            ::timeout
+            {:trie (into (sorted-map) data)
+             :route route}))))))

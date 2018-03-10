@@ -50,8 +50,8 @@
                    ([x consume-ex?]
                     (when-some [^PeerContainer peer (@peers address)]
                       (try
-                        (md/catch
-                         (md/chain (handler (.interface peer) x))
+                        (md/catch'
+                         (md/chain' (handler (.interface peer) x))
                          #(ex-handler % consume-ex?))
                         (catch Throwable e
                           (ex-handler e consume-ex?))))))
@@ -65,7 +65,7 @@
          peer (assoc peer :interface peer-if)]
     (swap! peers assoc address peer)
     (ms/on-closed sock-stream #(terminate-peer* curator address))
-    (md/chain
+    (md/chain'
      (md/future-with executor (handler (Init.)))
      (fn [_] (ms/consume handler (ms/onto executor sock-stream))))
     address))
@@ -74,7 +74,7 @@
   (let [peers (.peers curator)]
     (when-some [{:keys [period-streams deferreds handler state]}
                 (@peers address)]
-      (md/chain
+      (md/chain'
        (md/future-with (.executor curator) (handler (Terminate.)))
        (fn [_]
          (swap! peers dissoc address)

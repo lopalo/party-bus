@@ -1,6 +1,5 @@
 (ns party-bus.dht.peer.core
   (:require [clojure.string :refer [join]]
-            [medley.core :refer [abs]]
             [gloss.io :refer [encode decode]]
             [manifold.deferred :as md]
             aleph.udp
@@ -17,14 +16,13 @@
 
 (def N 160)
 
+(def exponents (range N))
+
 (def options
-  {:contacts {:pointers-step 1
-              :ping {:period 4000
-                     :timeout 3000}
-              :stabilization {:period 6000
-                              :step 1
-                              :range N
-                              :timeout 5000}}
+  {:contacts {:ping {:period 10000
+                     :timeout 8000}
+              :stabilization {:period 16000
+                              :exponents exponents}}
    :request-timeout 2000
    :storage {:max-ttl 3600000
              :default-ttl 600000
@@ -41,35 +39,24 @@
         (join ":" (u/host-port x))
         x)
       ^String sha1
-      (BigInteger. 16)
-      bigint))
+      (BigInteger. 16)))
 
-;TODO: optimization
-
-(def ^:private max-hash
+(def max-hash
   (as-> "f" $ (repeat 40 $) (apply str $) (BigInteger. ^String $ 16)))
 
-(def ^:private ^BigInteger two (biginteger 2))
-
-(defn pointers [origin n step]
-  (for [sign [- +]
-        n (range 0 n step)
-        :let [v (sign origin (.pow two n))]
-        :when (< 0 v max-hash)]
-    v))
-
-(defn distance [h h']
-  (abs (- h' h)))
+(defn distance [^BigInteger h ^BigInteger h']
+  (.abs (.subtract h' h)))
 
 (defn nearest-address [p hash-val]
   (let [state (get-state p)
         h (:hash state)
-        contacts (get-in state [:contacts :pointers])
-        pointers' (conj (keys contacts) h)
-        pointer (apply min-key (partial distance hash-val) pointers')]
-    (if (= pointer h)
+        pointers (get-in state [:contacts :pointers])
+        [a] (first (rsubseq pointers <= hash-val))
+        [b] (first (subseq pointers > hash-val))
+        point (min-key (partial distance hash-val) h (or a h) (or b h))]
+    (if (= point h)
       (get-address p)
-      (first (contacts pointer)))))
+      (first (pointers point)))))
 
 (defn create-request
   ([p]
@@ -78,7 +65,7 @@
    (let [d (create-deferred p)
          req-id (update-state-in p [:request-count] inc)]
      (update-state-in p [:requests] assoc req-id d)
-     (md/finally d #(update-state-in p [:requests] dissoc req-id))
+     (md/finally' d #(update-state-in p [:requests] dissoc req-id))
      (md/timeout! d timeout {:timeout? true})
      [req-id d])))
 

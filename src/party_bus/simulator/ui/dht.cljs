@@ -89,13 +89,16 @@
         selected-peer (react *selected-peer)
         *contacts (::selected-contacts state)]
     (ant/row
-     {:class :dht :gutter 8}
+     {:class :dht
+      :gutter 8
+      :justify :center}
      (ant/col
-      {:span 8}
-      (management (::reload state) ip->sim sim->total peers)
+      {:span 5}
+      (management (::reload state) ip->sim sim->total peers))
+     (ant/col
+      {:span 12}
+      (graph peers *selected-peer *contacts))
+     (ant/col
+      {:span 7}
       (when selected-peer
-        (peer selected-peer *contacts ip->sim)))
-     (ant/col
-      {:span 16}
-      (graph peers *selected-peer *contacts)))))
-
+        (peer selected-peer *contacts ip->sim))))))

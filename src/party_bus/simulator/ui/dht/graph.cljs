@@ -35,13 +35,15 @@
               :cy y
               :r 10
               :fill color
+              :stroke :white
+              :stroke-width 1
               :on-click #(reset! *selected-peer address)}]))]
     [:svg.graph
      {:width width
       :height height}
      [:circle.peer
       {:cx cx
-       :cy (- cy radius 20)
+       :cy (- cy radius 27)
        :r 15
        :fill "#92c7ec"
        :on-click (fn []
@@ -53,7 +55,7 @@
                   [x' y'] (position center radius p')]]
         [:path {:key (str (hash- p) "-" (hash- p'))
                 :d (<< "M~{x} ~{y} Q ~{cx} ~{cy} ~{x'} ~{y'}")
-                :stroke "#108EE9"
+                :stroke "#108ee9"
                 :stroke-width 1
                 :fill :transparent}])
       (map #(peer % "#108ee9") (difference peers contact-peers selected-peers))

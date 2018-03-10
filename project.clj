@@ -27,7 +27,7 @@
   :source-paths ["src"]
   :main ^:skip-aot party-bus.main
   :target-path "target/%s"
-  :global-vars {*warn-on-reflection* true}
+
   :plugins [[lein-figwheel "0.5.14"]
             [lein-cljsbuild "1.1.7"
              :exclusions [[org.clojure/clojure]]]]
@@ -43,6 +43,7 @@
                            :closure-defines
                            {party-bus.simulator.ui.core/INITIAL-ADDRESS
                             "127.0.0.1:12080"}
+                           :parallel-build true
                            :source-map-timestamp true
                            :preloads [devtools.preload]}}
                {:id "min"
@@ -50,7 +51,11 @@
                 :compiler {:output-to "resources/public/js/compiled/party_bus.js"
                            :main party-bus.simulator.ui.app
                            :optimizations :advanced
+                           :parallel-build true
                            :pretty-print false}}]}
+  :clean-targets ^{:protect false} ["resources/public/js/compiled"
+                                    "resources/public/css/compiled"
+                                    :target-path]
   :figwheel {:css-dirs ["resources/public/css"]
              :ring-handler party-bus.simulator.server/cljsjs-handler}
   :cljfmt {:indents {let< [[:block 1]]}}
@@ -58,9 +63,7 @@
              :repl {:dependencies [[binaryage/devtools "0.9.4"]
                                    [figwheel-sidecar "0.5.14"]
                                    [com.cemerick/piggieback "0.2.2"]]
+                    :global-vars {*warn-on-reflection* true}
                     :source-paths ["src" "dev"]
                     :main ^:skip-aot user
-                    :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}
-                    :clean-targets ^{:protect false} ["resources/public/js/compiled"
-                                                      "resources/public/css/compiled"
-                                                      :target-path]}})
+                    :repl-options {:nrepl-middleware [cemerick.piggieback/wrap-cljs-repl]}}})

@@ -1,7 +1,7 @@
 (ns party-bus.simulator.server
   (:require [clojure.string :refer [starts-with?]]
             [ring.middleware.defaults :refer [wrap-defaults site-defaults]]
-            [ring.middleware.resource :refer [resource-request]]
+            [ring.middleware.resource :refer [wrap-resource]]
             [ring.middleware.cors :as cors]
             [ring.util.response :as rr]
             [compojure.core :refer [routes context GET]]
@@ -54,8 +54,9 @@
         address (-> options :listen-address u/str->socket-address)]
     (-> (make-handler (:connect-addresses options) dht-state)
         wrap-deferred
-        (wrap-defaults (assoc-in site-defaults
-                                 [:security :anti-forgery] false))
+        (wrap-defaults (-> site-defaults
+                           (assoc-in [:security :anti-forgery] false)
+                           (assoc-in [:static :resources] ["cljsjs" "public"])))
         (wrap-cors :access-control-allow-origin [#".*"]
                    :access-control-allow-methods [:get :put :post :delete])
         wrap-asynchronous
@@ -63,7 +64,4 @@
                             :epoll? true}))))
 
 ;; for embedding into figwheel's server
-(defn cljsjs-handler [{:keys [uri] :as req}]
-  (if (starts-with? uri "/cljsjs/")
-    (resource-request req "")))
-
+(def cljsjs-handler (wrap-resource identity "cljsjs"))

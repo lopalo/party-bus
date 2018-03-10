@@ -1,5 +1,6 @@
 (ns party-bus.simulator.core
   (:require [clojure.walk :refer [prewalk]]
+            [clojure.string :refer [blank?]]
             [clojure.edn :as edn]
             [ring.util
              [response :refer [response content-type]]
@@ -45,4 +46,6 @@
                       (ms/filter some?)
                       (ms/map (comp pr-str translate-addresses)))
                  ws))))
+
+(def not-blank? (complement blank?))
 

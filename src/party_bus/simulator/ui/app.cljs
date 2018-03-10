@@ -36,7 +36,7 @@
                                   next-addresses)))
                         next-addresses (difference next-addresses addresses)]
                     (recur addresses next-addresses))
-                  addresses)))))
+                  (disj addresses ""))))))
        state)}
   [state]
   (let [sims (-> state ::simulators react)

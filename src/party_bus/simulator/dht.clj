@@ -7,10 +7,8 @@
             [party-bus.dht.curator :as c]
             [party-bus.dht.peer :as p]
             [party-bus.utils :as u]
-            [party-bus.simulator.core :refer [as-bool
-                                              connect-ws
-                                              edn-response
-                                              edn-body]]))
+            [party-bus.simulator.core
+             :refer [not-blank? as-bool connect-ws edn-response edn-body]]))
 
 (defrecord State [dht-ips curator])
 
@@ -28,7 +26,7 @@
          [:initial (->> new-peers shuffle (take max-total) set) total])))))
 
 (defn- create-peer [curator ip port contacts]
-  (md/chain
+  (md/chain'
    (p/create-peer curator ip port (map u/str->socket-address contacts))
    (constantly (edn-response :ok))))
 
@@ -52,19 +50,22 @@
                (not= (view old-st) new-v))
          new-v)))))
 
-(defn- put-value [curator ip port args]
-  (md/chain
+(defn- put-value [curator ip port {:keys [key value] :as args}]
+  {:pre [(not-blank? key) (not-blank? value)]}
+  (md/chain'
    (c/control-command curator (u/socket-address ip port) :put args)
    edn-response))
 
 (defn- get-value [curator ip port key trace?]
-  (md/chain
+  {:pre [(not-blank? key)]}
+  (md/chain'
    (c/control-command curator (u/socket-address ip port)
                       :get {:key key :trace? trace?})
    edn-response))
 
 (defn- get-trie [curator ip port prefix trace?]
-  (md/chain
+  {:pre [(not-blank? prefix)]}
+  (md/chain'
    (c/control-command curator (u/socket-address ip port)
                       :get-trie {:prefix prefix :trace? trace?})
    edn-response))

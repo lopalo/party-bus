@@ -5,30 +5,50 @@
                                                   get-state
                                                   update-state-in
                                                   create-period]]
-            [party-bus.dht.peer.core :as core :refer [options]]))
+            [party-bus.dht.peer.core :as core :refer [options N max-hash]]))
+
+(def ^:private ^BigInteger two (biginteger 2))
+
+(defn- points
+  ([origin]
+   (points origin core/exponents))
+  ([origin exponents]
+   (for [sign [- +]
+         exp exponents
+         :when (and (>= exp 0) (< exp N))
+         :let [v (sign origin (.pow two exp))
+               v (cond
+                   (< v 0) (+ v max-hash)
+                   (> v max-hash) (- v max-hash)
+                   :else v)]]
+     (biginteger v))))
 
 (defn- insert-contact [p address]
-  (let [h (-> p get-state :hash)
+  (let [state (get-state p)
+        h (:hash state)
+        points (get-in state [:contacts :points])
         hash-val (core/hash- address)
-        step (get-in options [:contacts :pointers-step])
-        pointers (conj (core/pointers h core/N step) h)
-        pointer (apply min-key (partial core/distance hash-val) pointers)]
-    (when-not (= pointer h)
+        a (first (rsubseq points <= hash-val))
+        b (first (subseq points > hash-val))
+        point (min-key (partial core/distance hash-val) h (or a h) (or b h))]
+    (when-not (= point h)
       (update-state-in
        p [:contacts :pointers]
-       (fn [contacts]
-         (let [[_ hash-val'] (contacts pointer)]
+       (fn [pointers]
+         (let [[_ hash-val'] (pointers point)]
            (if (or (nil? hash-val')
-                   (< (core/distance hash-val pointer)
-                      (core/distance hash-val' pointer)))
-             (assoc contacts pointer [address hash-val])
-             contacts)))))))
+                   (< (core/distance hash-val point)
+                      (core/distance hash-val' point)))
+             (assoc pointers point [address hash-val])
+             pointers)))))))
 
 (defn- insert-seeds [p]
   (run! (partial insert-contact p)
         (get-in (get-state p) [:contacts :seeds])))
 
 (defn init [p]
+  (let [points (points (-> p get-state :hash))]
+    (update-state-in p [:contacts :points] into points))
   (insert-seeds p)
   (create-period p :ping (get-in options [:contacts :ping :period]))
   (create-period p :stabilization
@@ -38,8 +58,8 @@
 
 (defmethod core/period-handler :ping [p _]
   (apply
-   md/zip
-   (for [[pointer [address]] (get-in (get-state p) [:contacts :pointers])]
+   md/zip'
+   (for [[point [address]] (get-in (get-state p) [:contacts :pointers])]
      (let [timeout (get-in options [:contacts :ping :timeout])
            [req-id d] (core/create-request p timeout)]
        (core/send-to p address {:type :ping :request-id req-id})
@@ -47,36 +67,32 @@
          (when timeout?
            (update-state-in
             p [:contacts :pointers]
-            (fn [contacts]
-              (let [[address'] (contacts pointer)]
+            (fn [pointers]
+              (let [[address'] (pointers point)]
                 (if (= address address')
-                  (dissoc contacts pointer)
-                  contacts))))))))))
+                  (dissoc pointers point)
+                  pointers))))))))))
 
 (defmethod core/period-handler :stabilization [p _]
   (let [address (get-address p)
         state (get-state p)
-        opts (get-in options [:contacts :stabilization])]
-    (when (empty? (:contacts state))
+        pointers (get-in state [:contacts :pointers])
+        contacts (->> pointers vals (map first) shuffle)
+        opts (get-in options [:contacts :stabilization])
+        points (points (:hash state) (:exponents opts))]
+    (when (empty? contacts)
       (insert-seeds p))
-    (apply
-     md/zip
-     (for [pointer (core/pointers (:hash state) (:range opts) (:step opts))
-           :let [nearest-addr (core/nearest-address p pointer)]
-           :when (not= nearest-addr address)]
-       (let [[req-id d] (core/create-request p (:timeout opts))]
-         (core/send-to p nearest-addr
-                       {:type :find-peer
-                        :hash pointer
-                        :flags {:trace-route false
-                                :respond true
-                                :empty 0}
-                        :response-address address
-                        :request-id req-id
-                        :route []})
-         (let< [{timeout? :timeout? address' :data} d]
-           (when-not timeout?
-             (insert-contact p address'))))))))
+    (doseq [[point contact] (map vector points (cycle contacts))
+            :let [nearest-addr (core/nearest-address p point)]]
+      (core/send-to p contact
+                    {:type :find-peer
+                     :hash point
+                     :flags {:trace-route false
+                             :respond true
+                             :empty 0}
+                     :response-address address
+                     :request-id 0
+                     :route []}))))
 
 (defmethod core/packet-handler :ping [p sender {:keys [request-id]}]
   (insert-contact p sender)
@@ -88,7 +104,7 @@
 (defmethod core/packet-handler :find-peer [p _ {k :key :as msg}]
   (insert-contact p (:response-address msg))
   (when-not (core/forward-lookup p msg)
-    (core/respond-lookup p msg :find-peer-response (get-address p))))
+    (core/respond-lookup p msg :find-peer-response 0)))
 
-(defmethod core/packet-handler :find-peer-response [p _ msg]
-  (core/resolve-request p msg))
+(defmethod core/packet-handler :find-peer-response [p sender msg]
+  (insert-contact p sender))

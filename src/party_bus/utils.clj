@@ -64,6 +64,6 @@
   ((fn self [name+forms]
      (if (seq name+forms)
        (let [[[n form] & name+forms'] name+forms]
-         `(md/chain ~form (fn [~n] ~(self name+forms'))))
+         `(md/chain' ~form (fn [~n] ~(self name+forms'))))
        `(do ~@body)))
    (partition 2 bindings)))

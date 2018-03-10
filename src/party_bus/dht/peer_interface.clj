@@ -62,7 +62,7 @@
       (let [deferreds (.deferreds peer)
             d (-> curator .executor md/deferred)]
         (if (contains? (swap! deferreds #(when % (conj % d))) d)
-          (do (md/finally d #(swap! deferreds disj d))
+          (do (md/finally' d #(swap! deferreds disj d))
               d)
           (terminated-error!))))
 

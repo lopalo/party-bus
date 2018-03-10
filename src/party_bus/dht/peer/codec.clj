@@ -7,11 +7,11 @@
 ;SHA-1 hash of key or peer's address
 (g/defcodec -hash
   (-> 20 (repeat :ubyte) vec)
-  (fn [^clojure.lang.BigInt x]
-    (let [b (-> x .toBigInteger .toByteArray reverse (concat zeros))]
+  (fn [^BigInteger x]
+    (let [b (-> x .toByteArray reverse (concat zeros))]
       (->> b (take 20) reverse vec)))
   (fn [bs]
-    (->> bs (cons 0) byte-array BigInteger. bigint)))
+    (->> bs (cons 0) byte-array BigInteger.)))
 
 (def -key (g/finite-frame :byte (g/string :utf-8)))
 
@@ -58,7 +58,7 @@
   (merge
    lookup-response-frame
    {:type :find-peer-response
-    :data address-c}))
+    :data :byte})) ; dummy (always 0)
 
 (g/defcodec find-value
   (merge
