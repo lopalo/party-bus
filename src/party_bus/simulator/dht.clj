@@ -10,7 +10,7 @@
             [party-bus.simulator.core
              :refer [not-blank? as-bool connect-ws edn-response edn-body]]))
 
-(defrecord State [dht-ips curator])
+(defrecord State [config dht-ips curator])
 
 (defn- listen-to-addresses [curator req max-total]
   (connect-ws
@@ -25,9 +25,9 @@
            [:delete (difference old-peers new-peers) total])
          [:initial (->> new-peers shuffle (take max-total) set) total])))))
 
-(defn- create-peer [curator ip port contacts]
+(defn- create-peer [curator config ip port contacts]
   (md/chain'
-   (p/create-peer curator ip port (map u/str->socket-address contacts))
+   (p/create-peer curator config ip port (map u/str->socket-address contacts))
    (constantly (edn-response :ok))))
 
 (defn- terminate-peer [curator ip port]
@@ -40,14 +40,13 @@
    (fn [[old-st new-st]]
      (let [contacts-view (comp set (partial map first) vals :pointers)
            view #(-> %
-                     (dissoc :request-count)
-                     (dissoc :requests)
+                     (dissoc :config :request-count :requests)
                      (update :contacts contacts-view)
                      (update-in [:storage :expiration] :direct)
                      (update :trie :nodes))
            new-v (view new-st)]
-       (if (or (nil? old-st)
-               (not= (view old-st) new-v))
+       (when (or (nil? old-st)
+                 (not= (view old-st) new-v))
          new-v)))))
 
 (defn- put-value [curator ip port {:keys [key value] :as args}]
@@ -70,11 +69,20 @@
                       :get-trie {:prefix prefix :trace? trace?})
    edn-response))
 
-(defn make-state [dht-ips]
+(defn init-state [config dht-ips]
   (when (seq dht-ips)
-    (->State dht-ips (c/create-curator 8 nil println))))
+    (let [cur-conf (:curator @config)
+          num-threads (:num-threads cur-conf)
+          exec-options (:executor-options cur-conf)]
+      (->State config
+               dht-ips
+               (c/create-curator num-threads exec-options println)))))
 
-(defn make-handler [{:keys [dht-ips curator]}]
+(defn destroy-state [{:keys [curator]}]
+  (c/terminate-all-peers curator)
+  (c/shutdown curator true))
+
+(defn make-handler [{:keys [config dht-ips curator]}]
   (routes
    (GET "/ip-addresses" []
      (edn-response dht-ips))
@@ -83,9 +91,9 @@
    (GET "/peer/:ip/:port" [ip port :<< as-int :as req]
      (listen-to-peer curator req ip port))
    (POST "/peer/:ip" [ip :as req]
-     (create-peer curator ip 0 (edn-body req)))
+     (create-peer curator config ip 0 (edn-body req)))
    (PUT "/peer/:ip/:port" [ip port :<< as-int :as req]
-     (create-peer curator ip port (edn-body req)))
+     (create-peer curator config ip port (edn-body req)))
    (DELETE "/peer/:ip/:port" [ip port :<< as-int]
      (terminate-peer curator ip port))
    (PUT "/put/:ip/:port" [ip port :<< as-int :as req]

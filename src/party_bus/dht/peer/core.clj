@@ -14,22 +14,12 @@
            [aleph.udp UdpPacket]
            [party_bus.dht.core Period ControlCommand Init Terminate]))
 
-(def N 160)
+(def ^:const N 160)
 
-(def exponents (range N))
+(def ^:const exponents (range N))
 
-(def options
-  {:contacts {:ping {:period 10000
-                     :timeout 8000}
-              :stabilization {:period 16000
-                              :exponents exponents}}
-   :request-timeout 2000
-   :storage {:max-ttl 3600000
-             :default-ttl 600000
-             :expired-cleanup-period 1000}
-   :trie {:upcast-period 4000
-          :node-ttl 15000
-          :expired-cleanup-period 1000}})
+(defn config [p & path]
+  (-> p get-state :config deref (get-in path)))
 
 (defn send-to [p receiver msg]
   (p/send-to p receiver (encode codec/message msg)))
@@ -41,7 +31,7 @@
       ^String sha1
       (BigInteger. 16)))
 
-(def max-hash
+(def ^:const max-hash
   (as-> "f" $ (repeat 40 $) (apply str $) (BigInteger. ^String $ 16)))
 
 (defn distance [^BigInteger h ^BigInteger h']
@@ -60,7 +50,7 @@
 
 (defn create-request
   ([p]
-   (create-request p (:request-timeout options)))
+   (create-request p (config p :request-timeout)))
   ([p timeout]
    (let [d (create-deferred p)
          req-id (update-state-in p [:request-count] inc)]

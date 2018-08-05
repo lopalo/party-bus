@@ -1,10 +1,14 @@
 (ns party-bus.utils
-  (:require [clojure.string :refer [split join]]
+  (:require [clojure.java.io :as io]
+            [clojure.edn :as edn]
+            [clojure.string :refer [split join]]
             [gloss.core :as g]
             [manifold.deferred :as md])
-  (:import [java.net InetSocketAddress]))
+  (:import [java.net InetSocketAddress]
+           [java.io PushbackReader]))
 
 (defn now-ms []
+  ;Should it be monotonic?
   (System/currentTimeMillis))
 
 (defn socket-address
@@ -59,11 +63,17 @@
 
 (def index (Index. (hash-map) (sorted-map)))
 
-(defmacro let< [bindings & body]
+(defmacro let<
   "Similar to Manifold's let-flow, but with less magic."
+  [bindings & body]
   ((fn self [name+forms]
      (if (seq name+forms)
        (let [[[n form] & name+forms'] name+forms]
          `(md/chain' ~form (fn [~n] ~(self name+forms'))))
        `(do ~@body)))
    (partition 2 bindings)))
+
+(defn load-edn [source]
+  (with-open [r (io/reader source)]
+    (edn/read (PushbackReader. r))))
+

@@ -22,9 +22,10 @@
 (defn- handler [p msg]
   (peer-handler p hooks msg))
 
-(defn create-peer [curator host port contacts]
+(defn create-peer [curator config host port contacts]
   (curator/create-peer curator host port handler
-                       {:hash nil
+                       {:config config
+                        :hash nil
                         :contacts
                         {:seeds (set contacts)
                          :points (sorted-set)

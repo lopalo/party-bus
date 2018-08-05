@@ -1,11 +1,10 @@
 (ns party-bus.dht.peer.trie
-  (:require [manifold.deferred :as md]
-            [party-bus.utils :as u :refer [let<]]
+  (:require [party-bus.utils :as u :refer [let<]]
             [party-bus.dht.peer-interface :refer [get-address
                                                   get-state
                                                   update-state-in
                                                   create-period]]
-            [party-bus.dht.peer.core :as core :refer [options]]))
+            [party-bus.dht.peer.core :as core :refer [config]]))
 
 ;; IMPLEMENATION FEATURE
 ;; A non-leaf node cannot contain values, so
@@ -17,17 +16,13 @@
 (defn- next-string [s]
   (->> s last int inc char (str (prefix s))))
 
-(defn- parse-int [^String s]
-  (Long. s))
-
-(defn- node-inserter [k amount]
+(defn- node-inserter [k amount ttl]
   (fn [trie]
     (-> trie
         ;; Discards a leaf node if there is a non-leaf node
         (update-in [:nodes k]
                    #(if (and (integer? %) (pos? %) (zero? amount)) % amount))
-        (update :expiration u/idx-assoc k
-                (+ (u/now-ms) (get-in options [:trie :node-ttl]))))))
+        (update :expiration u/idx-assoc k (+ (u/now-ms) ttl)))))
 
 (defn- subnodes [nodes prfx]
   (if (= prfx "")
@@ -38,9 +33,10 @@
   (when-not (= "" k)
     (let [key-hash (core/hash- (prefix k))
           address (get-address p)
-          nearest-addr (core/nearest-address p key-hash)]
+          nearest-addr (core/nearest-address p key-hash)
+          ttl (config p :trie :node-ttl)]
       (if (= nearest-addr address)
-        (update-state-in p [:trie] (node-inserter k amount))
+        (update-state-in p [:trie] (node-inserter k amount ttl))
         (core/send-to p nearest-addr
                       {:type :store-trie
                        :hash key-hash
@@ -67,8 +63,8 @@
 
 (defn init [p]
   (create-period p :expired-trie-cleanup
-                 (get-in options [:trie :expired-cleanup-period]))
-  (create-period p :trie-upcast (get-in options [:trie :upcast-period])))
+                 (config p :trie :expired-cleanup-period))
+  (create-period p :trie-upcast (config p :trie :upcast-period)))
 
 (defn terminate [p])
 
@@ -88,7 +84,8 @@
 (defmethod core/packet-handler :store-trie
   [p _ {k :key amount :amount :as msg}]
   (when-not (core/forward-lookup p msg)
-    (update-state-in p [:trie] (node-inserter k amount))))
+    (update-state-in p [:trie]
+                     (node-inserter k amount (config p :trie :node-ttl)))))
 
 (defmethod core/packet-handler :find-trie [p _ {prfx :prefix :as msg}]
   (when-not (core/forward-lookup p msg)

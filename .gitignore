@@ -8,6 +8,8 @@ pom.xml.asc
 .repl
 /.lein-*
 .cljs_rhino_repl
+.cljs_nashorn_repl
+/nashorn_code_cache
 /.nrepl-port
 .hgignore
 .hg/
@@ -15,3 +17,4 @@ pom.xml.asc
 figwheel_server.log
 /lib/
 /out/
+Session.vim

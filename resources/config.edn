@@ -1,0 +1,14 @@
+{:simulator {}
+ :dht {:curator {:num-threads 8
+                 :executor-options {}}
+       :contacts {:ping {:period 5000
+                         :timeout 4000}
+                  :stabilization {:period 8000
+                                  :exponent-step-factor 1.08}}
+       :request-timeout 2000
+       :storage {:max-ttl 3600000
+                 :default-ttl 600000
+                 :expired-cleanup-period 1000}
+       :trie {:upcast-period 4000
+              :node-ttl 15000
+              :expired-cleanup-period 1000}}}

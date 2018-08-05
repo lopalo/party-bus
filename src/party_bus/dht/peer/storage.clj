@@ -6,7 +6,7 @@
                                                   get-state
                                                   update-state-in
                                                   create-period]]
-            [party-bus.dht.peer.core :as core :refer [options]]))
+            [party-bus.dht.peer.core :as core :refer [config]]))
 
 (defn- kv-inserter [k v ttl groups]
   (fn [storage]
@@ -26,7 +26,7 @@
 
 (defn init [p]
   (create-period p :expired-kv-cleanup
-                 (get-in options [:storage :expired-cleanup-period])))
+                 (config p :storage :expired-cleanup-period)))
 
 (defn terminate [p])
 
@@ -72,7 +72,7 @@
   (let [key-hash (core/hash- k)
         address (get-address p)
         nearest-addr (core/nearest-address p key-hash)
-        sopts (:storage options)
+        sopts (config p :storage)
         ttl (-> ttl (or (:default-ttl sopts)) (min (:max-ttl sopts)))
         route (if trace? [address] [])
         key-groups {:trie-leaf trie? :empty 0}]

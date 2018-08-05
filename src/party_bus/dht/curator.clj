@@ -9,6 +9,7 @@
             [party-bus.dht.core :refer [terminated terminated-error]]
             [party-bus.dht.peer-interface :refer [peer-interface]])
   (:import [io.netty.channel.epoll EpollDatagramChannel]
+           [io.aleph.dirigiste Executor]
            [party_bus.dht.core
             Curator
             PeerContainer
@@ -100,6 +101,12 @@
 (defn terminate-all-peers [^Curator curator]
   (run! (partial terminate-peer curator)
         (-> curator .peers deref keys)))
+
+(defn shutdown [^Curator curator now?]
+  (let [^Executor executor (.executor curator)]
+    (if now?
+      (.shutdownNow executor)
+      (.shutdown executor))))
 
 (defn listen-to-addresses [^Curator curator]
   (let [s (ms/stream 1 nil (.executor curator))

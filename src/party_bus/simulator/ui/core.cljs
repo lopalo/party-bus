@@ -38,16 +38,16 @@
     (fn [state]
       (assoc state key (atom initial)))}))
 
-(defn react-size [*coll]
-  (rum/react (rum/derived-atom [*coll] (random-uuid) count)))
+(defn- react-prop [*coll prop-key f])
+  ;;TODO: reify IWatchable (take a look at rum.cursor)
 
 (defn react-vec [*vec]
-  (react-size *vec)
+  (react-prop *vec ::count count)
   (for [idx (-> *vec deref count range)]
     (rum/cursor *vec idx)))
 
 (defn react-map [*map]
-  (react-size *map)
+  (react-prop *map ::keys (comp set keys))
   (for [k (keys @*map)]
     [k (rum/cursor *map k)]))
 

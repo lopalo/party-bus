@@ -1,11 +1,15 @@
 (ns party-bus.main
-  (:require [clojure.string :refer [join]]
+  (:require [clojure.java.io :as io]
+            [clojure.string :refer [join]]
             [clojure.tools.cli :refer [parse-opts]]
             [party-bus.simulator.server :as sim])
   (:gen-class))
 
 (def option-specs
   [["-h" "--help"]
+   ["-C" "--config" "Configuration EDN file"
+    :required "PATH"
+    :validate [#(.exists (io/as-file %)) "File doesn't exist"]]
    ["-l" "--listen-address" "Simulator's listening address"
     :required "HOST:PORT"]
    ["-c" "--connect-address" "Addresses of all simulators"
