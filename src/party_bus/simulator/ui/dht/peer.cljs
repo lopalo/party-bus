@@ -1,42 +1,37 @@
 (ns party-bus.simulator.ui.dht.peer
   (:require [clojure.string :as s]
             [cljs.core.async :as async :refer [<!]]
-            [rum.core :as rum :refer [react]]
+            [rum.core :as rum :refer [react cursor]]
             [antizer.rum :as ant]
-            [party-bus.simulator.ui.core
-             :refer [store request connect-ws hash-]])
+            [party-bus.simulator.ui.core :as c])
   (:require-macros [clojure.core.strint :refer [<<]]
                    [cljs.core.async.macros :refer [go]]))
 
-(declare put-form last-request-info data-info)
-
-(def ui-state
-  {:address nil
-   :ws-c nil
-   :peer-state nil
-   :last-request nil})
+(declare put-form data-info)
 
 (def hooks
   {:after-render
    (fn [state]
-     (let [[selected-peer *contacts ip->sim] (:rum/args state)
+     (let [[_ {:keys [selected-peer *contacts ip->sim]}] (:rum/args state)
            [ip port] selected-peer
-           *local (::local state)
-           {:keys [address ws-c]} @*local
-           active? #(= selected-peer (:address @*local))]
-       (when (not= selected-peer address)
-         (when ws-c (async/close! ws-c))
-         (reset! *local (assoc ui-state :address selected-peer))
+           *address (::address state)
+           *ws-c (::ws-c state)
+           *peer-state (::peer-state state)
+           active? #(= selected-peer @*address)]
+       (when (not= selected-peer @*address)
+         (when-let [ws-c @*ws-c] (async/close! ws-c))
+         (reset! *address selected-peer)
+         (reset! *peer-state nil)
          (when selected-peer
            (go
-             (let [ws-c (<! (connect-ws (ip->sim ip)
-                                        (<< "/dht/peer/~{ip}/~{port}")))]
+             (let [ws-c (<! (c/connect-ws (ip->sim ip)
+                                          (<< "/dht/peer/~{ip}/~{port}")))]
                (when (active?)
-                 (swap! *local assoc :ws-c ws-c)
+                 (reset! *ws-c ws-c)
                  (loop [{peer-state :message} (<! ws-c)]
                    (when (and peer-state (active?))
                      (let [p-contacts (:contacts peer-state)]
-                       (if-not (:peer-state @*local)
+                       (if-not @*peer-state
                          (reset! *contacts
                                  (for [c p-contacts] [selected-peer c]))
                          (swap! *contacts
@@ -44,100 +39,121 @@
                                          (fn [[p p']]
                                            (and (= p selected-peer)
                                                 (not (p-contacts p'))))))))
-                     (swap! *local assoc :peer-state peer-state)
+                     (reset! *peer-state peer-state)
                      (recur (<! ws-c)))))
                (async/close! ws-c))))))
      state)
    :will-unmount
    (fn [state]
-     (some-> state ::local deref :ws-c async/close!))})
+     (some-> state ::ws-c deref async/close!)
+     state)})
 
 (rum/defcs peer
-  < (rum/local ui-state ::local)
+  < rum/reactive
+  < (c/store nil ::address)
+  < (c/store nil ::ws-c)
+  < (c/store nil ::peer-state)
+  < (c/init-arg-atom
+     first
+     {:get-key ""
+      :get-trie-prefix ""
+      :put-form nil
+      :data-info nil})
   < hooks
-  [state _ *contacts ip->sim]
-  (let [*local (::local state)
-        {:keys [address peer-state]} @*local
+  [state *local {:keys [*contacts *last-request show-route ip->sim]}]
+  (let [curs (partial cursor *local)
+        *address (::address state)
+        address (react *address)
+        peer-state (-> state ::peer-state react)
         [ip port] address
         sim (ip->sim ip)
-        input-val #(.-value (rum/ref-node state %))
-        show-route #(reset! *contacts
-                            (partition 2 1 (-> @*local :last-request :route)))
+        *get-key (curs :get-key)
+        *get-trie-pr (curs :get-trie-prefix)
         set-last-request
         (fn [k method response]
-          (when (= address (:address @*local))
+          (when (= address @*address)
             (if (map? response)
               (do
-                (swap! *local assoc :last-request
-                       (assoc response :key k :method method))
+                (reset! *last-request (assoc response :key k :method method))
                 (show-route))
-              (swap! *local assoc :last-request response))))
+              (reset! *last-request response))))
 
         do-get
         (fn []
           (go
-            (let [k (input-val "get-key")
+            (let [k  @*get-key
                   params {:key k
                           :trace true}
-                  res (<! (request :get sim
-                                   (<< "/dht/get/~{ip}/~{port}")
-                                   :query-params params))]
+                  res (<! (c/request :get sim
+                                     (<< "/dht/get/~{ip}/~{port}")
+                                     :query-params params))]
               (set-last-request k :get (:body res)))))
         do-get-trie
         (fn []
           (go
-            (let [prefix (input-val "get-trie")
+            (let [prefix @*get-trie-pr
                   params {:prefix prefix
                           :trace true}
-                  res (<! (request :get sim
-                                   (<< "/dht/get-trie/~{ip}/~{port}")
-                                   :query-params params))]
+                  res (<! (c/request :get sim
+                                     (<< "/dht/get-trie/~{ip}/~{port}")
+                                     :query-params params))]
               (set-last-request prefix :get-trie (:body res)))))]
     (ant/card
      {:title (str ip ":" port)}
      [:.peer
       {:key "content"}
-      (if address
+      (when address
         [:div
-         [:.row "Hash: " (hash- address)]
+         [:.row "Hash: " (c/hash- address)]
          (ant/button
           {:class :row
            :type :danger
-           :on-click #(request :delete sim (<< "/dht/peer/~{ip}/~{port}"))}
+           :on-click #(c/request :delete sim (<< "/dht/peer/~{ip}/~{port}"))}
           "Terminate")])
-      (if-let [{storage :storage trie :trie p-contacts :contacts} peer-state]
+      (when-let [{storage :storage trie :trie p-contacts :contacts} peer-state]
         [:div
-         (put-form sim ip port set-last-request)
+         (put-form (curs :put-form)
+                   {:simulator sim
+                    :ip ip
+                    :port port
+                    :set-last-request set-last-request})
          (ant/form
           {:class :row :layout :inline}
           (ant/form-item
-           (ant/input {:ref "get-key" :placeholder "Key"}))
+           (ant/input {:value (react *get-key)
+                       :on-change (c/setter *get-key)
+                       :placeholder "Key"}))
           (ant/form-item
            (ant/button {:on-click do-get} "Get")))
          (ant/form
           {:class :row :layout :inline}
           (ant/form-item
-           (ant/input {:ref "get-trie" :placeholder "Prefix"}))
+           (ant/input {:value (react *get-trie-pr)
+                       :on-change (c/setter *get-trie-pr)
+                       :placeholder "Prefix"}))
           (ant/form-item
            (ant/button {:on-click do-get-trie} "Get Trie")))
-         (if-let [last-request (:last-request @*local)]
-           (last-request-info last-request))
-         (data-info address storage trie p-contacts *contacts)])])))
+         (data-info (curs :data-info)
+                    {:address address
+                     :storage storage
+                     :trie trie
+                     :p-contacts p-contacts
+                     :*contacts *contacts})])])))
 
 (rum/defcs put-form
   < rum/reactive
-  < (store "" ::key)
-  < (store "" ::value)
-  < (store 600 ::ttl-sec)
-  < (store true ::trie?)
-  [state sim ip port set-last-request]
-  (let [*key (::key state)
-        *value (::value state)
-        *ttl-sec (::ttl-sec state)
-        *trie? (::trie? state)
-        set-val
-        (fn [*ref]
-          #(reset! *ref (.. % -target -value)))
+  < (c/init-arg-atom
+     first
+     {:key ""
+      :value ""
+      :ttl-sec 600
+      :trie? true})
+  [state *local {:keys [simulator ip port set-last-request]}]
+  (let [curs (partial cursor *local)
+        *key (curs :key)
+        *value (curs :value)
+        *ttl-sec (curs :ttl-sec)
+        *trie? (curs :trie?)
         do-put
         (fn []
           (go
@@ -147,9 +163,9 @@
                           :ttl (* @*ttl-sec 1000)
                           :trie? @*trie?
                           :trace? true}
-                  res (<! (request :put sim
-                                   (<< "/dht/put/~{ip}/~{port}")
-                                   :edn-params params))]
+                  res (<! (c/request :put simulator
+                                     (<< "/dht/put/~{ip}/~{port}")
+                                     :edn-params params))]
               (set-last-request k :put (:body res)))))
         shuffle-key
         (fn []
@@ -158,7 +174,7 @@
      {:class :row :layout :inline}
      (ant/form-item
       (ant/input {:value (react *key)
-                  :on-change (set-val *key)
+                  :on-change (c/setter *key)
                   :placeholder "Key"}))
      (ant/form-item
       (ant/button {:shape :circle
@@ -166,7 +182,7 @@
                    :on-click shuffle-key}))
      (ant/form-item
       (ant/input {:value (react *value)
-                  :on-change (set-val *value)
+                  :on-change (c/setter *value)
                   :placeholder "Value"}))
      (ant/form-item
       (ant/input-number {:step 60
@@ -184,26 +200,13 @@
      (ant/form-item
       (ant/button {:on-click do-put} "Put")))))
 
-(rum/defc last-request-info [last-request]
-  (ant/card
-   {:title "Last request"
-    :class :row}
-   [:div
-    {:key "content"}
-    (if (map? last-request)
-      (let [{:keys [key method route value trie ttl]} last-request]
-        [:div
-         [:div "Method: " (name method)]
-         [:div "Key hash: " (hash- key)]
-         [:div "Hops: " (count route)]
-         (if ttl [:div "TTL: " ttl])
-         [:div "Key: " key]
-         (if value [:div "Value: " value])
-         (if trie [:div "Trie: " (str trie)])])
-      [:div [:strong (str last-request)]])]))
-
-(rum/defc data-info [address storage trie p-contacts *contacts]
+(rum/defc data-info
+  < rum/reactive
+  < (c/init-arg-atom first #js [])
+  [*local {:keys [address storage trie p-contacts *contacts]}]
   (ant/collapse
+   {:active-key (react *local)
+    :on-change (partial reset! *local)}
    (ant/collapse-panel
     {:header "Contacts"}
     [:div

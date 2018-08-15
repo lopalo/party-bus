@@ -2,11 +2,13 @@
   (:require [clojure.set :refer [union difference]]
             [cljs.core.async :as async :refer [<!]]
             [sablono.core :refer-macros [html]]
-            [rum.core :as rum :refer [react]]
+            [rum.core :as rum :refer [react cursor]]
             [antizer.rum :as ant]
-            [party-bus.simulator.ui.core :as core :refer [store]]
+            [party-bus.simulator.ui.core
+             :as core
+             :refer [store init-arg-atom]]
             [party-bus.simulator.ui.dht :refer [dht]])
-  (:require-macros [cljs.core.async.macros :refer [go go-loop]]))
+  (:require-macros [cljs.core.async.macros :refer [go-loop]]))
 
 (enable-console-print!)
 
@@ -19,28 +21,27 @@
 (rum/defcs app
   < rum/reactive
   < (store #{} ::simulators)
-  < (store "dht" ::content)
+  < (init-arg-atom
+     first
+     {:content "dht"
+      :dht nil})
   < {:did-mount
      (fn [state]
-       (go
-         (reset!
-          (::simulators state)
-          (<! (go-loop [addresses #{}
-                        next-addresses #{core/INITIAL-ADDRESS}]
-                (if (seq next-addresses)
-                  (let [addresses (union addresses next-addresses)
-                        next-addresses
-                        (<! (async/map
-                             #(->> %& (map (comp set :body)) (apply union))
-                             (map #(core/request :get % "/all-addresses")
-                                  next-addresses)))
-                        next-addresses (difference next-addresses addresses)]
-                    (recur addresses next-addresses))
-                  (disj addresses ""))))))
+       (go-loop [addresses #{core/INITIAL-ADDRESS}]
+         (when (seq addresses)
+           (let [addresses
+                 (<! (async/map
+                      #(->> %& (map (comp set :body)) (apply union))
+                      (map #(core/request :get % "/all-addresses")
+                           addresses)))
+                 addresses (difference addresses @(::simulators state))]
+             (swap! (::simulators state) union addresses)
+             (recur addresses))))
        state)}
-  [state]
-  (let [sims (-> state ::simulators react)
-        *content (::content state)
+  [state *local]
+  (let [curs (partial cursor *local)
+        sims (-> state ::simulators react)
+        *content (curs :content)
         content (react *content)]
     (ant/layout
      (ant/layout-header
@@ -64,11 +65,16 @@
       (ant/layout-content
        {:class :content-area}
        (case content
-         "dht" (dht sims)
+         "dht" (dht (curs :dht) {:simulators sims})
          "Unknown content"))))))
 
+(defonce *app-state (atom nil))
+
+(comment
+  (js/console.log @*app-state))
+
 (defn mount []
-  (rum/mount (app)
+  (rum/mount (app *app-state)
              (. js/document (getElementById "app"))))
 
 (mount)

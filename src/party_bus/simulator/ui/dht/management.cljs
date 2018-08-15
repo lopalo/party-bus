@@ -1,18 +1,21 @@
 (ns party-bus.simulator.ui.dht.management
   (:require [clojure.string :refer [join]]
-            [rum.core :as rum :refer [react]]
+            [rum.core :as rum :refer [react cursor]]
             [antizer.rum :as ant]
-            [party-bus.simulator.ui.core :refer [store request]])
+            [party-bus.simulator.ui.core :refer [init-arg-atom request]])
   (:require-macros [clojure.core.strint :refer [<<]]))
 
 (rum/defcs management
   < rum/reactive
-  < (store 3 ::create-amount)
-  < (store 3 ::terminate-amount)
-  [state reload ip->sim sim->total peers]
+  < (init-arg-atom
+     first
+     {:create-amount 3
+      :terminate-amount 3})
+  [state *local {:keys [reload ip->sim sim->total peers]}]
   (let [ips (-> ip->sim keys vec)
-        *create-amount (::create-amount state)
-        *terminate-amount (::terminate-amount state)
+        curs (partial cursor *local)
+        *create-amount (curs :create-amount)
+        *terminate-amount (curs :terminate-amount)
         create-peers
         (fn []
           (let [peers' (vec peers)]
@@ -31,7 +34,8 @@
           (doseq [[ip port] (take @*terminate-amount (shuffle peers))]
             (request :delete (ip->sim ip) (<< "/dht/peer/~{ip}/~{port}"))))]
     (ant/card
-     {:title "Distributed Hash Table"}
+     {:title "Distributed Hash Table"
+      :class :row}
      [:div
       {:key "content"}
       [:.row

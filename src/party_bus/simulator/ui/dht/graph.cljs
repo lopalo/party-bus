@@ -15,7 +15,7 @@
 
 (rum/defc graph
   < rum/reactive
-  [peers *selected-peer *contacts]
+  [{:keys [peers *selected-peer *contacts]}]
   (let [width 840
         height 800
         radius 350
@@ -24,7 +24,7 @@
         selected-peer (react *selected-peer)
         contacts (react *contacts)
         contact-peers (->> contacts (apply concat) set)
-        selected-peers (if selected-peer #{selected-peer})
+        selected-peers (when selected-peer #{selected-peer})
         peer
         (fn [address color]
           (let [h (hash- address)

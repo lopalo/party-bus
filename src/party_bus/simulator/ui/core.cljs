@@ -34,12 +34,40 @@
   ([initial]
    (store initial :rum/store))
   ([initial key]
-   {:will-mount
+   {:init
     (fn [state]
       (assoc state key (atom initial)))}))
 
-(defn- react-prop [*coll prop-key f])
-  ;;TODO: reify IWatchable (take a look at rum.cursor)
+(defn init-arg-atom [selector data]
+  (let [init
+        (fn [state]
+          (-> state :rum/args selector (swap! #(if (some? %) % data)))
+          state)]
+    {:init init
+     :did-remount #(init %2)}))
+
+(defn setter [*ref]
+  #(reset! *ref (.. % -target -value)))
+
+(defn- react-prop [*ref prop-key f]
+  (rum/react
+   (reify
+     IDeref
+     (-deref [_])
+
+     IWatchable
+     (-add-watch [_ key callback]
+       (add-watch *ref (list prop-key key)
+                  (fn [_ _ oldv newv]
+                    (let [oldv' (f oldv)
+                          newv' (f newv)]
+                      (when (not= oldv' newv')
+                        (callback key nil oldv' newv')))))
+       nil)
+
+     (-remove-watch [_ key]
+       (remove-watch *ref (list prop-key key))
+       nil))))
 
 (defn react-vec [*vec]
   (react-prop *vec ::count count)
