@@ -4,7 +4,7 @@
              [core :refer [routes GET PUT POST DELETE]]
              [coercions :refer [as-int]]]
             [manifold.deferred :as md]
-            [party-bus.dht.curator :as c]
+            [party-bus.peer.curator :as c]
             [party-bus.dht.peer :as p]
             [party-bus.utils :as u]
             [party-bus.simulator.core

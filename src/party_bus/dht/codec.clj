@@ -1,4 +1,4 @@
-(ns party-bus.dht.peer.codec
+(ns party-bus.dht.codec
   (:require [gloss.core :as g]
             [party-bus.utils :refer [address-c]]))
 

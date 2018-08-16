@@ -9,13 +9,14 @@
             [rum.derived-atom :refer [derived-atom]]
             [figwheel-sidecar.repl-api :as fig]
             [party-bus.utils :refer [let< socket-address load-edn]]
-            [party-bus.dht
+            [party-bus.peer
              [curator :as c]
-             [peer-interface :as p]
-             [peer :as peer]]
-            [party-bus.dht.peer.codec :as codec]
+             [interface :as p]]
+            [party-bus.dht
+              [peer :as peer]
+              [codec :as codec]]
             [party-bus.simulator.server :as sim])
-  (:import [party_bus.dht.core Period Init Terminate]))
+  (:import [party_bus.peer.core Period Init Terminate]))
 
 (declare curator config simulator)
 

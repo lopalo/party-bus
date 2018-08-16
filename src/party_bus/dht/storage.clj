@@ -1,12 +1,12 @@
-(ns party-bus.dht.peer.storage
+(ns party-bus.dht.storage
   (:require [clojure.set :refer [difference]]
             [medley.core :refer [map-vals map-kv]]
             [party-bus.utils :as u :refer [let<]]
-            [party-bus.dht.peer-interface :refer [get-address
-                                                  get-state
-                                                  update-state-in
-                                                  create-period]]
-            [party-bus.dht.peer.core :as core :refer [config]]))
+            [party-bus.peer.interface :refer [get-address
+                                              get-state
+                                              update-state-in
+                                              create-period]]
+            [party-bus.dht.core :as core :refer [config]]))
 
 (defn- kv-inserter [k v ttl groups]
   (fn [storage]

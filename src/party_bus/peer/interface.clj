@@ -1,9 +1,9 @@
-(ns party-bus.dht.peer-interface
+(ns party-bus.peer.interface
   (:require [manifold
              [deferred :as md]
              [stream :as ms]]
-            [party-bus.dht.core :refer [terminated terminated-error]])
-  (:import [party_bus.dht.core
+            [party-bus.peer.core :refer [terminated terminated-error]])
+  (:import [party_bus.peer.core
             PeerContainer
             Curator
             Period]))

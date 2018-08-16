@@ -1,11 +1,11 @@
-(ns party-bus.dht.peer.contacts
+(ns party-bus.dht.contacts
   (:require [manifold.deferred :as md]
             [party-bus.utils :as u :refer [let<]]
-            [party-bus.dht.peer-interface :refer [get-address
-                                                  get-state
-                                                  update-state-in
-                                                  create-period]]
-            [party-bus.dht.peer.core :as core :refer [config N max-hash]]))
+            [party-bus.peer.interface :refer [get-address
+                                              get-state
+                                              update-state-in
+                                              create-period]]
+            [party-bus.dht.core :as core :refer [config N max-hash]]))
 
 (def ^:const ^:private ^BigInteger two (biginteger 2))
 

@@ -1,10 +1,10 @@
-(ns party-bus.dht.peer.trie
+(ns party-bus.dht.trie
   (:require [party-bus.utils :as u :refer [let<]]
-            [party-bus.dht.peer-interface :refer [get-address
-                                                  get-state
-                                                  update-state-in
-                                                  create-period]]
-            [party-bus.dht.peer.core :as core :refer [config]]))
+            [party-bus.peer.interface :refer [get-address
+                                              get-state
+                                              update-state-in
+                                              create-period]]
+            [party-bus.dht.core :as core :refer [config]]))
 
 ;; IMPLEMENATION FEATURE
 ;; A non-leaf node cannot contain values, so

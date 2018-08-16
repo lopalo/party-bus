@@ -1,7 +1,7 @@
 (ns party-bus.dht.peer
   (:require [party-bus.utils :as u]
-            [party-bus.dht.curator :as curator]
-            [party-bus.dht.peer
+            [party-bus.peer.curator :as curator]
+            [party-bus.dht
              [core :refer [peer-handler]]
              [contacts :as contacts]
              [storage :as storage]

@@ -1,4 +1,4 @@
-(ns party-bus.dht.curator
+(ns party-bus.peer.curator
   (:require [medley.core :refer [deref-reset!]]
             [manifold
              [executor :refer [fixed-thread-executor]]
@@ -6,11 +6,11 @@
              [stream :as ms]]
             [aleph.udp :refer [socket]]
             [party-bus.utils :refer [let< socket-address]]
-            [party-bus.dht.core :refer [terminated terminated-error]]
-            [party-bus.dht.peer-interface :refer [peer-interface]])
+            [party-bus.peer.core :refer [terminated terminated-error]]
+            [party-bus.peer.interface :refer [peer-interface]])
   (:import [io.netty.channel.epoll EpollDatagramChannel]
            [io.aleph.dirigiste Executor]
-           [party_bus.dht.core
+           [party_bus.peer.core
             Curator
             PeerContainer
             ControlCommand
