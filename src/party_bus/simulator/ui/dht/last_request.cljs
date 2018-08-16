@@ -6,7 +6,7 @@
 (rum/defc last-request-info [{:keys [last-request show-route *selected-peer]}]
   (ant/card
    {:title "Last request"}
-   [:div
+   [:.last-request
     {:key "content"}
     (if (map? last-request)
       (let [{:keys [key method route value trie ttl]} last-request]
@@ -14,11 +14,13 @@
          (let [[ip port :as address] (first route)]
            [:div "Coordinator: "
             (ant/button {:size :small
+                         :class :contact
                          :on-click #(reset! *selected-peer address)}
                         ip ":" port)])
          (let [[ip port :as address] (peek route)]
            [:div "Target: "
             (ant/button {:size :small
+                         :class :contact
                          :on-click #(reset! *selected-peer address)}
                         ip ":" port)])
          [:div "Method: " (name method)]

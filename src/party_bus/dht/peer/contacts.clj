@@ -85,7 +85,7 @@
   (let [address (get-address p)
         state (get-state p)
         pointers (get-in state [:contacts :pointers])
-        contacts (->> pointers vals (map first) shuffle)
+        contacts (->> pointers vals (map first))
         opts (config p :contacts :stabilization)
         step-factor (:exponent-step-factor opts)
         exponents (if (> step-factor 1)
@@ -94,7 +94,12 @@
         points (points (:hash state) exponents)]
     (when (empty? contacts)
       (insert-seeds p))
-    (doseq [[point contact] (map vector points (cycle contacts))]
+    (doseq [point points
+            :let [nearest-addr (core/nearest-address p point)
+                  contact (if (= nearest-addr address)
+                            (when (seq contacts) (rand-nth contacts))
+                            nearest-addr)]
+            :when contact]
       (core/send-to p contact
                     {:type :find-peer
                      :hash point
