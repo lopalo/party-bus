@@ -22,6 +22,8 @@
   (-> p get-state :config deref (get-in path)))
 
 (defn send-to [p receiver msg]
+  #_(let [sender (get-address p)]
+      (assert (not= sender receiver) [sender receiver msg]))
   (p/send-to p receiver (encode codec/message msg)))
 
 (defn hash- [x]
@@ -39,14 +41,12 @@
 
 (defn nearest-address [p hash-val]
   (let [state (get-state p)
-        h (:hash state)
         pointers (get-in state [:contacts :pointers])
-        [a] (first (rsubseq pointers <= hash-val))
-        [b] (first (subseq pointers > hash-val))
-        point (min-key (partial distance hash-val) h (or a h) (or b h))]
-    (if (= point h)
-      (get-address p)
-      (first (pointers point)))))
+        [_ a] (first (rsubseq pointers <= hash-val))
+        [_ b] (first (subseq pointers > hash-val))
+        c [(get-address p) (:hash state)]]
+    (first
+     (min-key #(distance hash-val (second %)) c (or a c) (or b c)))))
 
 (defn create-request
   ([p]
@@ -63,14 +63,22 @@
   (when-some [d (get-in (get-state p) [:requests (:request-id message)])]
     (md/success! d message)))
 
-(defn forward-lookup [p {h :hash {trace? :trace-route} :flags :as msg}]
+(defn forward-lookup
+  [p {h :hash
+      {trace? :trace-route} :flags
+      :keys [hops response-address]
+      :as msg}]
   (let [address (get-address p)
         nearest-addr (nearest-address p h)]
     (if (= nearest-addr address)
       false
       (do
-        (send-to p nearest-addr
-                 (update msg :route #(if trace? (conj % address) [])))
+        (when (and (< hops (config p :max-hops))
+                   (not= response-address nearest-addr))
+          (send-to p nearest-addr
+                   (-> msg
+                       (update :hops inc)
+                       (update :route #(if trace? (conj % address) [])))))
         true))))
 
 (defn respond-lookup

@@ -72,11 +72,14 @@
         set-last-request
         (fn [k method response]
           (when (= address @*address)
-            (if (map? response)
-              (do
-                (reset! *last-request (assoc response :key k :method method))
-                (show-route))
-              (reset! *last-request response))))
+            (let [basic {:key k
+                         :method method
+                         :ts (js/Date.now)}]
+              (if (map? response)
+                (do
+                  (reset! *last-request (merge basic response))
+                  (show-route))
+                (reset! *last-request (assoc basic :error response))))))
 
         do-get
         (fn []
@@ -230,8 +233,7 @@
       [:.storage
        {:key "content"}
        (for [[k v] data
-             :let [exp (-> k expiration js/Date.
-                           (.toLocaleString "en-GB"))]]
+             :let [exp (-> k expiration c/format-ts)]]
          [[:.record {:key k} (<< "~{k} (~{exp}): ~{v}")]])]))
    (ant/collapse-panel
     {:header "Trie"}

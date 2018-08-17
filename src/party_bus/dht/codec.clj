@@ -42,6 +42,7 @@
            :empty 6)
    :response-address address-c
    :request-id :int64
+   :hops :ubyte
    :route (g/repeated address-c)})
 
 (def lookup-response-frame

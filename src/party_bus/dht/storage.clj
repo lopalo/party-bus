@@ -92,6 +92,7 @@
                                  :empty 0}
                          :response-address address
                          :request-id 0
+                         :hops 1
                          :route []
                          :key k
                          :key-groups key-groups
@@ -107,6 +108,7 @@
                                  :empty 0}
                          :response-address address
                          :request-id req-id
+                         :hops 1
                          :route route
                          :key k
                          :key-groups key-groups
@@ -139,6 +141,7 @@
                                :empty 0}
                        :response-address address
                        :request-id req-id
+                       :hops 1
                        :route route
                        :key k})
         (let< [{timeout? :timeout? {:keys [ttl value]} :data route :route} d]

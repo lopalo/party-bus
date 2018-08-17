@@ -84,3 +84,5 @@
           (join ":" x)
           x)))
 
+(defn format-ts [ts]
+  (.toLocaleString (js/Date. ts) "en-GB"))

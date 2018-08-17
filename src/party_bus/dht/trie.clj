@@ -45,6 +45,7 @@
                                :empty 0}
                        :response-address address
                        :request-id 0
+                       :hops 1
                        :route []
                        :key k
                        :amount amount}))))) ; 0 means a leaf
@@ -113,6 +114,7 @@
                                :empty 0}
                        :response-address address
                        :request-id req-id
+                       :hops 1
                        :route route
                        :prefix prfx})
         (let< [{:keys [timeout? data route]} d]

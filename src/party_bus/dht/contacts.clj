@@ -108,6 +108,7 @@
                              :empty 0}
                      :response-address address
                      :request-id 0
+                     :hops 1
                      :route []}))))
 
 (defmethod core/packet-handler :ping [p sender {:keys [request-id]}]
