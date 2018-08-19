@@ -63,15 +63,29 @@
 
 (def index (Index. (hash-map) (sorted-map)))
 
-(defmacro let<
-  "Similar to Manifold's let-flow, but with less magic."
-  [bindings & body]
-  ((fn self [name+forms]
-     (if (seq name+forms)
-       (let [[[n form] & name+forms'] name+forms]
-         `(md/chain' ~form (fn [~n] ~(self name+forms'))))
-       `(do ~@body)))
-   (partition 2 bindings)))
+(defn =>
+  ([expr]
+   (=> expr '_))
+  ([expr name]
+   (assert nil "=> used not in (flow ...) block")))
+
+(defn let> [bindings]
+  (assert nil "let> used not in (flow ...) block"))
+
+(defmacro flow [& body]
+  (cons 'do
+        ((fn self [[form & forms]]
+           (cond
+             (nil? form) ()
+             (and (list? form) (= (resolve (first form)) #'=>))
+             (let [[_ form' name] form
+                   name (or name '_)]
+               `((md/chain' ~form' (fn [~name] ~@(self forms)))))
+             (and (list? form) (= (resolve (first form)) #'let>))
+             (list (list* 'let (second form) (self forms)))
+             :default
+             (cons form (self forms))))
+         body)))
 
 (defn load-edn [source]
   (with-open [r (io/reader source)]

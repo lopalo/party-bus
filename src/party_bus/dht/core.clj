@@ -34,7 +34,7 @@
       (BigInteger. 16)))
 
 (def ^:const max-hash
-  (as-> "f" $ (repeat 40 $) (apply str $) (BigInteger. ^String $ 16)))
+  (as-> "f" $ (repeat 40 $) (join $) (BigInteger. ^String $ 16)))
 
 (defn distance [^BigInteger h ^BigInteger h']
   (.abs (.subtract h' h)))

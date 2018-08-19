@@ -8,13 +8,13 @@
             [gloss.io :refer [encode decode]]
             [rum.derived-atom :refer [derived-atom]]
             [figwheel-sidecar.repl-api :as fig]
-            [party-bus.utils :refer [let< socket-address load-edn]]
+            [party-bus.utils :refer [flow => let> socket-address load-edn]]
             [party-bus.peer
              [curator :as c]
              [interface :as p]]
             [party-bus.dht
-              [peer :as peer]
-              [codec :as codec]]
+             [peer :as peer]
+             [codec :as codec]]
             [party-bus.simulator.server :as sim])
   (:import [party_bus.peer.core Period Init Terminate]))
 
@@ -62,12 +62,13 @@
            (p/create-deferred p)
            (p/create-period p :foo 2000)
            (p/create-period p :bar 2000)
-           (let< [t1 (md/timeout! (p/create-deferred p) 3000 :timeout-1)
-                  _ (p/cancel-period p :foo)
-                  t2 (md/timeout! (p/create-deferred p) 3000 :timeout-2)
-                  _ (prn "Complete init" t1 t2
-                         (p/update-state p (constantly :completed)))
-                  _ (md/timeout! (p/create-deferred p) 2000 :timeout-3)]
+           (flow
+             (=> (md/timeout! (p/create-deferred p) 3000 :timeout-1) t1)
+             (p/cancel-period p :foo)
+             (let> [txt "Complete init"])
+             (=> (md/timeout! (p/create-deferred p) 3000 :timeout-2) t2)
+             (prn txt t1 t2 (p/update-state p (constantly :completed)))
+             (=> (md/timeout! (p/create-deferred p) 2000 :timeout-3))
              (p/terminate p)))
          Period (prn "Period:" (:id msg))
          Terminate (prn "Terminate")))

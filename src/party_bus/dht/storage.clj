@@ -1,7 +1,7 @@
 (ns party-bus.dht.storage
   (:require [clojure.set :refer [difference]]
             [medley.core :refer [map-vals map-kv]]
-            [party-bus.utils :as u :refer [let<]]
+            [party-bus.utils :as u :refer [flow =>]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in
@@ -114,7 +114,8 @@
                          :key-groups key-groups
                          :value value
                          :ttl ttl})
-          (let< [{:keys [timeout? data route]} d]
+          (flow
+            (=> d {:keys [timeout? data route]})
             (if timeout?
               ::timeout
               {:ttl ttl
@@ -144,7 +145,8 @@
                        :hops 1
                        :route route
                        :key k})
-        (let< [{timeout? :timeout? {:keys [ttl value]} :data route :route} d]
+        (flow
+          (=> d {timeout? :timeout? {:keys [ttl value]} :data route :route})
           (if timeout?
             ::timeout
             {:ttl ttl

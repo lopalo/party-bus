@@ -5,7 +5,7 @@
              [deferred :as md]
              [stream :as ms]]
             [aleph.udp :refer [socket]]
-            [party-bus.utils :refer [let< socket-address]]
+            [party-bus.utils :refer [flow => let> socket-address]]
             [party-bus.peer.core :refer [terminated terminated-error]]
             [party-bus.peer.interface :refer [peer-interface]])
   (:import [io.netty.channel.epoll EpollDatagramChannel]
@@ -25,45 +25,46 @@
             exception-logger))
 
 (defn create-peer [^Curator curator host port handler initial-state]
-  (let< [{:keys [executor peers exception-logger]} curator
-         opts {:epoll? true
-               :broadcast? false
-               :raw-stream? false
-               :socket-address (socket-address host port)}
-         sock-stream (socket opts)
-         ;if a port is 0, OS allocates one from the ephemeral port range
-         address (-> sock-stream
-                     meta
-                     ^EpollDatagramChannel (:aleph/channel)
-                     .localAddress)
-         period-streams (atom {})
-         deferreds (atom #{})
-         state (atom initial-state)
-         ex-handler (fn [e consume-ex?]
-                      (when-not (= (-> e ex-data :reason) terminated)
-                        (exception-logger e)
-                        (ms/close! sock-stream))
-                      (when-not consume-ex?
-                        (md/error-deferred e executor)))
-         handler (fn h
-                   ([x]
-                    (h x true))
-                   ([x consume-ex?]
-                    (when-some [^PeerContainer peer (@peers address)]
-                      (try
-                        (md/catch'
-                         (md/chain' (handler (.interface peer) x))
-                         #(ex-handler % consume-ex?))
-                        (catch Throwable e
-                          (ex-handler e consume-ex?))))))
-         peer (PeerContainer. sock-stream
-                              period-streams
-                              deferreds
-                              handler
-                              state
-                              nil)
-         peer-if (peer-interface curator address peer)
-         peer (assoc peer :interface peer-if)]
+  (flow
+    (let> [{:keys [executor peers exception-logger]} curator
+           opts {:epoll? true
+                 :broadcast? false
+                 :raw-stream? false
+                 :socket-address (socket-address host port)}])
+    ;if a port is 0, OS allocates one from the ephemeral port range
+    (=> (socket opts) sock-stream)
+    (let> [address (-> sock-stream
+                       meta
+                       ^EpollDatagramChannel (:aleph/channel)
+                       .localAddress)
+           period-streams (atom {})
+           deferreds (atom #{})
+           state (atom initial-state)
+           ex-handler (fn [e consume-ex?]
+                        (when-not (= (-> e ex-data :reason) terminated)
+                          (exception-logger e)
+                          (ms/close! sock-stream))
+                        (when-not consume-ex?
+                          (md/error-deferred e executor)))
+           handler (fn h
+                     ([x]
+                      (h x true))
+                     ([x consume-ex?]
+                      (when-some [^PeerContainer peer (@peers address)]
+                        (try
+                          (md/catch'
+                           (md/chain' (handler (.interface peer) x))
+                           #(ex-handler % consume-ex?))
+                          (catch Throwable e
+                            (ex-handler e consume-ex?))))))
+           peer (PeerContainer. sock-stream
+                                period-streams
+                                deferreds
+                                handler
+                                state
+                                nil)
+           peer-if (peer-interface curator address peer)
+           peer (assoc peer :interface peer-if)])
     (swap! peers assoc address peer)
     (ms/on-closed sock-stream #(terminate-peer* curator address))
     (md/chain'

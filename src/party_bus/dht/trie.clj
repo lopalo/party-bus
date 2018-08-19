@@ -1,5 +1,5 @@
 (ns party-bus.dht.trie
-  (:require [party-bus.utils :as u :refer [let<]]
+  (:require [party-bus.utils :as u :refer [flow =>]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in
@@ -117,7 +117,8 @@
                        :hops 1
                        :route route
                        :prefix prfx})
-        (let< [{:keys [timeout? data route]} d]
+        (flow
+          (=> d {:keys [timeout? data route]})
           (if timeout?
             ::timeout
             {:trie (into (sorted-map) data)

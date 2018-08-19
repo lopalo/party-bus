@@ -58,7 +58,7 @@
                                     :target-path]
   :figwheel {:css-dirs ["resources/public/css"]
              :ring-handler party-bus.simulator.server/cljsjs-handler}
-  :cljfmt {:indents {let< [[:block 1]]}}
+  :cljfmt {:indents {flow [[:block 0]]}}
   :profiles {:uberjar {:aot :all}
              :repl {:dependencies [[binaryage/devtools "0.9.4"]
                                    [figwheel-sidecar "0.5.14"]

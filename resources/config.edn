@@ -6,7 +6,7 @@
        :contacts {:ping {:period 5000
                          :timeout 4000}
                   :stabilization {:period 8000
-                                  :exponent-step-factor 1.08}}
+                                  :exponent-step-factor 1.03}}
        :storage {:max-ttl 3600000
                  :default-ttl 600000
                  :expired-cleanup-period 1000}
