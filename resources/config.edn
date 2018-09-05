@@ -12,4 +12,8 @@
                  :expired-cleanup-period 1000}
        :trie {:upcast-period 4000
               :node-ttl 15000
-              :expired-cleanup-period 1000}}}
+              :expired-cleanup-period 1000}}
+ :cluster {:node {:num-threads 8
+                  :executor-options {}
+                  :tcp {}
+                  :ping-period 4000}}}

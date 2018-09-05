@@ -72,22 +72,32 @@
 (defn let> [bindings]
   (assert nil "let> used not in (flow ...) block"))
 
+(defn when> [test]
+  (assert nil "when> used not in (flow ...) block"))
+
+(defn- form= [form v]
+  (and (list? form) (= (resolve (first form)) v)))
+
+;;TODO: maybe rewrite it with reduce
 (defmacro flow [& body]
-  (cons 'do
-        ((fn self [[form & forms]]
+  `(md/chain'
+    (do
+      ~@((fn self [[form & forms]]
            (cond
-             (nil? form) ()
-             (and (list? form) (= (resolve (first form)) #'=>))
+             (nil? form)
+             ()
+             (form= form #'=>)
              (let [[_ form' name] form
                    name (or name '_)]
                `((md/chain' ~form' (fn [~name] ~@(self forms)))))
-             (and (list? form) (= (resolve (first form)) #'let>))
-             (list (list* 'let (second form) (self forms)))
+             (form= form #'let>)
+             `((let ~(second form) ~@(self forms)))
+             (form= form #'when>)
+             `((when ~(second form) ~@(self forms)))
              :default
              (cons form (self forms))))
-         body)))
+         body))))
 
 (defn load-edn [source]
   (with-open [r (io/reader source)]
     (edn/read (PushbackReader. r))))
-

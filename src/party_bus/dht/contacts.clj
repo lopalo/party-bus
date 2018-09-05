@@ -1,6 +1,6 @@
 (ns party-bus.dht.contacts
   (:require [manifold.deferred :as md]
-            [party-bus.utils :as u :refer [flow =>]]
+            [party-bus.utils :as u :refer [flow => when>]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in
@@ -63,14 +63,14 @@
        (core/send-to p address {:type :ping :request-id req-id})
        (flow
          (=> d {timeout? :timeout?})
-         (when timeout?
-           (update-state-in
-            p [:contacts :pointers]
-            (fn [pointers]
-              (let [[address'] (pointers point)]
-                (if (= address address')
-                  (dissoc pointers point)
-                  pointers))))))))))
+         (when> timeout?)
+         (update-state-in
+          p [:contacts :pointers]
+          (fn [pointers]
+            (let [[address'] (pointers point)]
+              (if (= address address')
+                (dissoc pointers point)
+                pointers)))))))))
 
 (defn stepped-exponents
   ([factor]
