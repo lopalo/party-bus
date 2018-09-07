@@ -17,7 +17,9 @@
    :endpoint address-c})
 
 (g/defcodec ping
-  {:type :ping})
+  {:type :ping
+   :other-endpoints (g/repeated address-c
+                                :prefix :ubyte)})
 
 (g/defcodec letter
   {:type :letter

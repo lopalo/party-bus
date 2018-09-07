@@ -89,11 +89,11 @@
              (form= form #'=>)
              (let [[_ form' name] form
                    name (or name '_)]
-               `((md/chain' ~form' (fn [~name] ~@(self forms)))))
+               (list `(md/chain' ~form' (fn [~name] ~@(self forms)))))
              (form= form #'let>)
-             `((let ~(second form) ~@(self forms)))
+             (list `(let ~(second form) ~@(self forms)))
              (form= form #'when>)
-             `((when ~(second form) ~@(self forms)))
+             (list `(when ~(second form) ~@(self forms)))
              :default
              (cons form (self forms))))
          body))))
