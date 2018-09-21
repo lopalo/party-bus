@@ -9,7 +9,7 @@
             manifold.deferred
             [manifold.stream :as ms]
             [aleph.http :as http]
-            [party-bus.utils :as u])
+            [party-bus.core :as c])
   (:import [java.net InetSocketAddress]
            [manifold.deferred IDeferred]))
 
@@ -21,7 +21,7 @@
   (render [d _] d))
 
 (defn translate-addresses [form]
-  (prewalk #(if (instance? InetSocketAddress %) (u/host-port %) %) form))
+  (prewalk #(if (instance? InetSocketAddress %) (c/host-port %) %) form))
 
 (defn edn-response [x]
   (-> x

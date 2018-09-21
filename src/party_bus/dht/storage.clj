@@ -1,7 +1,7 @@
 (ns party-bus.dht.storage
   (:require [clojure.set :refer [difference]]
             [medley.core :refer [map-vals map-kv]]
-            [party-bus.utils :as u :refer [flow =>]]
+            [party-bus.core :as c :refer [flow =>]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in
@@ -17,11 +17,11 @@
                                   (if (groups group)
                                     [group (conj ks k)]
                                     [group ks]))))
-        (update :expiration u/idx-assoc k (+ (u/now-ms) ttl)))))
+        (update :expiration c/idx-assoc k (+ (c/now-ms) ttl)))))
 
 (defn- key-ttl [storage k]
   (if-some [exp (get-in storage [:expiration :direct k])]
-    (- exp (u/now-ms))
+    (- exp (c/now-ms))
     0))
 
 (defn init [p]
@@ -34,14 +34,14 @@
   (update-state-in
    p [:storage]
    (fn [storage]
-     (let [expired-keys (u/idx-search (:expiration storage) < (u/now-ms))
+     (let [expired-keys (c/idx-search (:expiration storage) < (c/now-ms))
            expired-keys' (set expired-keys)]
        (-> storage
            (update :data #(reduce dissoc % expired-keys))
            (update :groups
                    (partial map-vals (fn [ks]
                                        (difference ks expired-keys'))))
-           (update :expiration #(reduce u/idx-dissoc % expired-keys)))))))
+           (update :expiration #(reduce c/idx-dissoc % expired-keys)))))))
 
 (defmethod core/packet-handler :store
   [p _ {k :key :keys [value ttl key-groups] :as msg}]

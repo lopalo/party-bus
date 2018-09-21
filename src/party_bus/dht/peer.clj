@@ -1,5 +1,5 @@
 (ns party-bus.dht.peer
-  (:require [party-bus.utils :as u]
+  (:require [party-bus.core :as c]
             [party-bus.peer.curator :as curator]
             [party-bus.dht
              [core :refer [peer-handler]]
@@ -33,9 +33,9 @@
                         :storage
                         {:data {}
                          :groups {:trie-leaf #{}}
-                         :expiration u/index}
+                         :expiration c/index}
                         :trie
                         {:nodes (sorted-map)
-                         :expiration u/index}
+                         :expiration c/index}
                         :request-count 0
                         :requests {}}))

@@ -3,25 +3,40 @@
              [executor :as ex]
              [deferred :as md]
              [stream :as ms]]
-            [gloss.io :refer [encode decode-stream]]
+            [gloss
+             [core :as g]
+             [io :refer [encode decode-stream]]]
             [aleph.tcp :refer [start-server client]]
-            [party-bus.utils :refer [flow => let> when>] :as u]
-            [party-bus.cluster.core
-             :refer [->EndpointConnected
-                     ->EndpointDisconnected
-                     ->Received
-                     default-stream-buffer-size]])
+            [party-bus.core :refer [flow => let> when>] :as c])
   (:import [java.io Closeable]
            [io.netty.channel.epoll EpollChannelOption]
            [io.netty.bootstrap Bootstrap ServerBootstrap]))
 
+(def ^:private default-stream-buffer-size 100)
+
 (declare server-bootstrap  client-bootstrap spawn-pinger)
+
+(defrecord EndpointConnected [endpoint])
+
+(defrecord EndpointDisconnected [endpoint])
+
+(defrecord Received [endpoint msg])
+
+(g/defcodec init-connection-c
+  {:type :init-connection
+   :endpoint c/address-c})
+
+(g/defcodec ping-c
+  {:type :ping
+   :other-endpoints (g/repeated c/address-c
+                                :prefix :ubyte)})
 
 (defprotocol Transport
   (endpoint [this])
   (events [this])
   (connect-to [this remote-endpoint])
   (send-to [this remote-endpoint msg])
+  (broadcast [this msg])
   (destroy [this]))
 
 (defn create-transport
@@ -29,7 +44,7 @@
                    :or {ping-period 1000}}]
   (let [opts {:epoll? true
               :raw-stream? false}
-        endpoint (u/socket-address host port)
+        endpoint (c/socket-address host port)
         connections (atom {})
         swap-connection! (partial swap! connections update)
         del-connection!
@@ -43,19 +58,18 @@
         transport (atom nil)
         wrap-connection
         (fn [connection]
-          (ex/with-executor executor
-            (let [out (ms/stream default-stream-buffer-size)]
-              (ms/connect (ms/map (partial encode codec) out) connection)
-              (ms/splice out (decode-stream connection codec)))))
+          (let [out (ms/stream default-stream-buffer-size)]
+            (ms/connect (ms/map (partial encode codec) out) connection)
+            (ms/splice out (decode-stream connection codec))))
         init-connection
         (fn [remote-endpoint connection]
           (flow
-            (=> (ms/put! events (->EndpointConnected remote-endpoint)))
+            (=> (ms/put! events (EndpointConnected. remote-endpoint)))
             (ms/on-closed
              connection
              (fn []
-               (del-connection! remote-endpoint connection)
-               (ms/put! events (->EndpointDisconnected remote-endpoint))))
+               (ms/put! events (EndpointDisconnected. remote-endpoint))
+               (del-connection! remote-endpoint connection)))
             (ms/connect-via
              connection
              (fn [msg]
@@ -65,7 +79,7 @@
                      (doseq [ep (:other-endpoints msg)]
                        (connect-to tr ep)))
                    (md/success-deferred true))
-                 (ms/put! events (->Received remote-endpoint msg))))
+                 (ms/put! events (Received. remote-endpoint msg))))
              events
              {:downstream? false
               :upstream? true})
@@ -76,25 +90,25 @@
         server
         (start-server
          (fn [connection _]
-           (flow
-             (let> [connection (wrap-connection connection)])
-             (=> (ms/take! connection) {remote-endpoint :endpoint})
-             (let> [superior? (pos? (compare (str remote-endpoint)
-                                             (str endpoint)))
-                    cs (swap-connection!
-                        remote-endpoint
-                        #(if (or (not %)
+           (ex/with-executor executor
+             (flow
+               (let> [connection (wrap-connection connection)])
+               (=> (ms/take! connection) {remote-endpoint :endpoint})
+               (let> [superior? (pos? (compare (str remote-endpoint)
+                                               (str endpoint)))
+                      cs (swap-connection!
+                          remote-endpoint
+                          #(if (or (not %)
                                 ;is a sentinel
-                                 (and (not (ms/stream? %)) superior?))
-                           connection
-                           %))
-                    accepted? (= (cs remote-endpoint) connection)])
-             (when-not accepted?
-               (ms/close! connection))
-             (when> accepted?)
-             (=> (ms/put! connection {:type :ping :other-endpoints []}))
-             (init-connection remote-endpoint connection)))
-
+                                   (and (not (ms/stream? %)) superior?))
+                             connection
+                             %))
+                      accepted? (= (cs remote-endpoint) connection)])
+               (when-not accepted?
+                 (ms/close! connection))
+               (when> accepted?)
+               (=> (ms/put! connection {:type :ping :other-endpoints []}))
+               (init-connection remote-endpoint connection))))
          (assoc opts
                 :socket-address endpoint
                 :bootstrap-transform (partial server-bootstrap tcp)))]
@@ -116,29 +130,35 @@
                  cs (swap-connection! remote-endpoint
                                       #(if-not % sentinel %))
                  watched? (= (cs remote-endpoint) sentinel)]
-             (md/finally'
-              (flow
-                (when> watched?)
-                (=> (md/catch' (client opts)
-                               (constantly nil))
-                    connection)
-                (when> connection)
-                (let> [connection (wrap-connection connection)])
-                (=> (ms/put! connection {:type :init-connection
-                                         :endpoint endpoint}))
-                (=> (ms/take! connection) response)
-                (when> response)
-                (let> [cs (swap-connection!
-                           remote-endpoint
-                           #(if (= % sentinel) connection %))
-                       accepted? (= (cs remote-endpoint) connection)])
-                (if accepted?
-                  (init-connection remote-endpoint connection)
-                  (ms/close! connection)))
-              #(del-connection! remote-endpoint sentinel)))))
+             (ex/with-executor executor
+               (md/finally'
+                (flow
+                  (when> watched?)
+                  (=> (md/catch' (client opts)
+                                 (constantly nil))
+                      connection)
+                  (when> connection)
+                  (let> [connection (wrap-connection connection)])
+                  (=> (ms/put! connection {:type :init-connection
+                                           :endpoint endpoint}))
+                  (=> (ms/take! connection) response)
+                  (when> response)
+                  (let> [cs (swap-connection!
+                             remote-endpoint
+                             #(if (= % sentinel) connection %))
+                         accepted? (= (cs remote-endpoint) connection)])
+                  (if accepted?
+                    (init-connection remote-endpoint connection)
+                    (ms/close! connection)))
+                #(del-connection! remote-endpoint sentinel))))))
 
        (send-to [this remote-endpoint msg]
          (some-> @connections (get remote-endpoint) (ms/put! msg)))
+
+       (broadcast [this msg]
+         (apply md/zip'
+                (map #(when (ms/stream? %) (ms/put! % msg))
+                     (vals @connections))))
 
        (destroy [this]
          (reset! transport nil)
@@ -186,14 +206,15 @@
     (ms/consume (partial println "T2") (events t2))
     (ms/consume (partial println "T3") (events t3)))
   (do
-    (connect-to t1 (u/socket-address "127.0.0.1" 9002))
-    (connect-to t2 (u/socket-address "127.0.0.1" 9001))
-    (connect-to t3 (u/socket-address "127.0.0.1" 9002)))
+    (connect-to t1 (c/socket-address "127.0.0.1" 9002))
+    (connect-to t2 (c/socket-address "127.0.0.1" 9001))
+    (connect-to t3 (c/socket-address "127.0.0.1" 9002)))
   (do
-    (send-to t2 (u/socket-address "127.0.0.1" 9001)
+    (send-to t2 (c/socket-address "127.0.0.1" 9001)
              {:type :letter
-              :sender 666
-              :receiver 777
+              :sender-number 666
+              :receiver-number 777
+              :header "The header!"
               :body "Foo Bar Baz"}))
   (do
     (destroy t1)

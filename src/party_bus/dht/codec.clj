@@ -1,6 +1,6 @@
 (ns party-bus.dht.codec
   (:require [gloss.core :as g]
-            [party-bus.utils :refer [address-c]]))
+            [party-bus.core :refer [address-c]]))
 
 (def zeros (repeat 0))
 

@@ -1,11 +1,11 @@
 (ns party-bus.peer.curator
   (:require [medley.core :refer [deref-reset!]]
             [manifold
-             [executor :refer [fixed-thread-executor]]
+             [executor :as ex]
              [deferred :as md]
              [stream :as ms]]
             [aleph.udp :refer [socket]]
-            [party-bus.utils :refer [flow => let> socket-address]]
+            [party-bus.core :refer [flow => let> socket-address]]
             [party-bus.peer.core :refer [terminated terminated-error]]
             [party-bus.peer.interface :refer [peer-interface]])
   (:import [io.netty.channel.epoll EpollDatagramChannel]
@@ -20,7 +20,7 @@
 (declare terminate-peer*)
 
 (defn create-curator [num-threads executor-options exception-logger]
-  (Curator. (fixed-thread-executor num-threads executor-options)
+  (Curator. (ex/fixed-thread-executor num-threads executor-options)
             (atom {})
             exception-logger))
 
@@ -52,9 +52,10 @@
                      ([x consume-ex?]
                       (when-some [^PeerContainer peer (@peers address)]
                         (try
-                          (md/catch'
-                           (md/chain' (handler (.interface peer) x))
-                           #(ex-handler % consume-ex?))
+                          (ex/with-executor executor
+                            (md/catch'
+                             (md/chain' (handler (.interface peer) x))
+                             #(ex-handler % consume-ex?)))
                           (catch Throwable e
                             (ex-handler e consume-ex?))))))
            peer (PeerContainer. sock-stream
@@ -67,24 +68,26 @@
            peer (assoc peer :interface peer-if)])
     (swap! peers assoc address peer)
     (ms/on-closed sock-stream #(terminate-peer* curator address))
-    (md/chain'
-     (md/future-with executor (handler (Init.)))
-     (fn [_] (ms/consume handler (ms/onto executor sock-stream))))
+    (ex/with-executor executor
+      (md/chain'
+       (md/future-with executor (handler (Init.)))
+       (fn [_] (ms/consume handler (ms/onto executor sock-stream)))))
     address))
 
 (defn- terminate-peer* [^Curator curator address]
   (let [peers (.peers curator)]
     (when-some [{:keys [period-streams deferreds handler state]}
                 (@peers address)]
-      (md/chain'
-       (md/future-with (.executor curator) (handler (Terminate.)))
-       (fn [_]
-         (swap! peers dissoc address)
-         (doseq [ps (-> period-streams (deref-reset! nil) vals)]
-           (ms/close! ps))
-         (doseq [d (deref-reset! deferreds nil)]
-           (md/error! d terminated-error))
-         (reset! state terminated))))))
+      (ex/with-executor (.executor curator)
+        (md/chain'
+         (md/future-with (.executor curator) (handler (Terminate.)))
+         (fn [_]
+           (swap! peers dissoc address)
+           (doseq [ps (-> period-streams (deref-reset! nil) vals)]
+             (ms/close! ps))
+           (doseq [d (deref-reset! deferreds nil)]
+             (md/error! d terminated-error))
+           (reset! state terminated)))))))
 
 (defn- get-peer ^PeerContainer [^Curator curator address]
   (some-> curator .peers deref (get address)))

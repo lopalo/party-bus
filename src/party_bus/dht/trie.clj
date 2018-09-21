@@ -1,5 +1,5 @@
 (ns party-bus.dht.trie
-  (:require [party-bus.utils :as u :refer [flow =>]]
+  (:require [party-bus.core :as c :refer [flow => prefix next-string]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in
@@ -10,19 +10,13 @@
 ;; A non-leaf node cannot contain values, so
 ;; a leaf node is discarded in favor of non-leaf node.
 
-(defn- prefix [s]
-  (subs s 0 (dec (count s))))
-
-(defn- next-string [s]
-  (->> s last int inc char (str (prefix s))))
-
 (defn- node-inserter [k amount ttl]
   (fn [trie]
     (-> trie
         ;; Discards a leaf node if there is a non-leaf node
         (update-in [:nodes k]
                    #(if (and (integer? %) (pos? %) (zero? amount)) % amount))
-        (update :expiration u/idx-assoc k (+ (u/now-ms) ttl)))))
+        (update :expiration c/idx-assoc k (+ (c/now-ms) ttl)))))
 
 (defn- subnodes [nodes prfx]
   (if (= prfx "")
@@ -73,10 +67,10 @@
   (update-state-in
    p [:trie]
    (fn [trie]
-     (let [expired-keys (u/idx-search (:expiration trie) < (u/now-ms))]
+     (let [expired-keys (c/idx-search (:expiration trie) < (c/now-ms))]
        (-> trie
            (update :nodes #(reduce dissoc % expired-keys))
-           (update :expiration #(reduce u/idx-dissoc % expired-keys)))))))
+           (update :expiration #(reduce c/idx-dissoc % expired-keys)))))))
 
 (defmethod core/period-handler :trie-upcast [p _]
   (upcast-leaves p)

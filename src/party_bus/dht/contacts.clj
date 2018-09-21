@@ -1,6 +1,6 @@
 (ns party-bus.dht.contacts
   (:require [manifold.deferred :as md]
-            [party-bus.utils :as u :refer [flow => when>]]
+            [party-bus.core :refer [flow => when>]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in

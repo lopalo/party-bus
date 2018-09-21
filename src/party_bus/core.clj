@@ -1,4 +1,4 @@
-(ns party-bus.utils
+(ns party-bus.core
   (:require [clojure.java.io :as io]
             [clojure.edn :as edn]
             [clojure.string :refer [split join]]
@@ -39,6 +39,20 @@
   (fn [[host port]]
     (socket-address host port)))
 
+(def set-conj (fnil conj #{}))
+
+(defn disj-dissoc [m k v]
+  (let [s (-> m (get k) (disj v))]
+    (if (empty? s)
+      (dissoc m k)
+      (assoc m k s))))
+
+(defn dissoc-empty [m k]
+  (let [v (get m k)]
+    (if (empty? v)
+      (dissoc m k)
+      m)))
+
 (defrecord Index [direct inverse])
 
 (declare idx-dissoc)
@@ -49,14 +63,13 @@
               (idx-dissoc idx k))]
     (-> idx
         (assoc-in [:direct k] v)
-        (update-in [:inverse v] (fnil conj #{}) k))))
+        (update-in [:inverse v] set-conj k))))
 
 (defn idx-dissoc [idx k]
-  (let [v (get-in idx [:direct k] ::no-val)
-        size (count (get-in idx [:inverse v]))
-        idx (if (> size 1) (update-in idx [:inverse v] disj k)
-                (update idx :inverse dissoc v))]
-    (update idx :direct dissoc k)))
+  (let [v (get-in idx [:direct k] ::no-val)]
+    (-> idx
+        (update :direct dissoc k)
+        (update :inverse disj-dissoc v k))))
 
 (defn idx-search [idx & args]
   (mapcat second (apply subseq (:inverse idx) args)))
@@ -78,7 +91,6 @@
 (defn- form= [form v]
   (and (list? form) (= (resolve (first form)) v)))
 
-;;TODO: maybe rewrite it with reduce
 (defmacro flow [& body]
   `(md/chain'
     (do
@@ -101,3 +113,10 @@
 (defn load-edn [source]
   (with-open [r (io/reader source)]
     (edn/read (PushbackReader. r))))
+
+(defn prefix [s]
+  (subs s 0 (dec (count s))))
+
+(defn next-string [s]
+  (->> s last int inc char (str (prefix s))))
+

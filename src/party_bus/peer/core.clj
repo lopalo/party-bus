@@ -3,10 +3,10 @@
 (defrecord Curator [executor peers exception-logger])
 
 (defrecord PeerContainer [sock-stream
-                          period-streams ;atom
-                          deferreds ;atom
+                          period-streams
+                          deferreds
                           handler
-                          state ;atom
+                          state
                           interface])
 
 (defrecord Period [id])

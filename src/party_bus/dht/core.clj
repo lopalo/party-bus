@@ -4,7 +4,7 @@
             [manifold.deferred :as md]
             aleph.udp
             [digest :refer [sha1]]
-            [party-bus.utils :as u]
+            [party-bus.core :as c]
             [party-bus.peer.interface :as p :refer [get-address
                                                     get-state
                                                     update-state-in
@@ -28,7 +28,7 @@
 
 (defn hash- [x]
   (-> (if (instance? InetSocketAddress x)
-        (join ":" (u/host-port x))
+        (join ":" (c/host-port x))
         x)
       ^String sha1
       (BigInteger. 16)))

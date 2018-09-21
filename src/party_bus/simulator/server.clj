@@ -9,7 +9,7 @@
             [aleph.http :as http]
             [manifold.deferred :as md]
             [rum.derived-atom :refer [derived-atom]]
-            [party-bus.utils :as u]
+            [party-bus.core :as c]
             [party-bus.simulator.dht :as dht]
             [party-bus.simulator.core :refer [edn-response]])
   (:import [java.io File Closeable]))
@@ -23,13 +23,13 @@
       (when @config
         (let [lm' (.lastModified file)]
           (when-not (= lm lm')
-            (let [cnf (u/load-edn config-src)]
+            (let [cnf (c/load-edn config-src)]
               (swap! config #(when % cnf))))
           (recur lm'))))))
 
 (defn- init-state [options]
   (let [config-src (:config options)
-        config (-> config-src u/load-edn atom)
+        config (-> config-src c/load-edn atom)
         dht (dht/init-state (derived-atom [config] :dht :dht)
                             (:dht-ips options))]
     (future (watch-config config-src config))
@@ -91,7 +91,7 @@
                           :epoll? true})))
 
 (defn start-server [options]
-  (let [address (-> options :listen-address u/str->socket-address)
+  (let [address (-> options :listen-address c/str->socket-address)
         state (init-state options)
         ^Closeable
         http-server (start-http address state)]

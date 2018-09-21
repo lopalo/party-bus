@@ -8,13 +8,16 @@
             [gloss.io :refer [encode decode]]
             [rum.derived-atom :refer [derived-atom]]
             [figwheel-sidecar.repl-api :as fig]
-            [party-bus.utils :refer [flow => let> socket-address load-edn]]
+            [party-bus.core :refer [flow => let>] :as c]
             [party-bus.peer
-             [curator :as c]
-             [interface :as p]]
+             [curator :as cur]
+             [interface :as pi]]
             [party-bus.dht
              [peer :as peer]
-             [codec :as codec]]
+             [codec :as dht-codec]]
+            [party-bus.cluster
+             [node :as node]
+             [process :as proc]]
             [party-bus.simulator.server :as sim])
   (:import [party_bus.peer.core Period Init Terminate]))
 
@@ -31,21 +34,21 @@
   ([socket remote-port message]
    @(ms/put! socket {:host "127.0.0.1"
                      :port remote-port
-                     :message (encode codec/message message)})))
+                     :message (encode dht-codec/message message)})))
 
 (defn create-echo-peer [port]
   @(md/catch
     (md/chain
-     (c/create-peer
+     (cur/create-peer
       curator "127.0.0.1" port
       (fn [p {:keys [sender message] :as input}]
-        (let [port (.getPort (p/get-address p))]
+        (let [port (.getPort (pi/get-address p))]
           (prn
            (if sender
              (format "Peer %s receives from %s: %s"
                      port
                      (.getPort sender)
-                     (decode codec/message message))
+                     (decode dht-codec/message message))
              (format "Peer %s: %s" port input)))))
       {})
      #(.getPort %))
@@ -53,23 +56,23 @@
 
 (defn create-timer-peer [port]
   @(md/chain
-    (c/create-peer
+    (cur/create-peer
      curator "127.0.0.1" port
      (fn [p msg]
        (condp instance? msg
          Init
          (do
-           (p/create-deferred p)
-           (p/create-period p :foo 2000)
-           (p/create-period p :bar 2000)
+           (pi/create-deferred p)
+           (pi/create-period p :foo 2000)
+           (pi/create-period p :bar 2000)
            (flow
-             (=> (md/timeout! (p/create-deferred p) 3000 :timeout-1) t1)
-             (p/cancel-period p :foo)
-             (let> [txt "Complete init"])
-             (=> (md/timeout! (p/create-deferred p) 3000 :timeout-2) t2)
-             (prn txt t1 t2 (p/update-state p (constantly :completed)))
-             (=> (md/timeout! (p/create-deferred p) 2000 :timeout-3))
-             (p/terminate p)))
+            (=> (md/timeout! (pi/create-deferred p) 3000 :timeout-1) t1)
+            (pi/cancel-period p :foo)
+            (let> [txt "Complete init"])
+            (=> (md/timeout! (pi/create-deferred p) 3000 :timeout-2) t2)
+            (prn txt t1 t2 (pi/update-state p (constantly :completed)))
+            (=> (md/timeout! (pi/create-deferred p) 2000 :timeout-3))
+            (pi/terminate p)))
          Period (prn "Period:" (:id msg))
          Terminate (prn "Terminate")))
      :initial)
@@ -79,7 +82,7 @@
   (apply peer/create-peer curator (derived-atom [config] :dht :dht) args))
 
 (defn load-config []
-  (-> "config.edn" io/resource load-edn))
+  (-> "config.edn" io/resource c/load-edn))
 
 (defn fig-start []
   (fig/start-figwheel!))
@@ -96,7 +99,7 @@
                      :connect-addresses #{"127.0.0.1:12080"}
                      :dht-ips #{"127.0.0.2" "127.0.0.3" "127.0.0.4"}}))
 
-(defonce curator (c/create-curator 2 nil prn))
+(defonce curator (cur/create-curator 2 nil prn))
 (defonce config (atom (load-config)))
 (defonce simulator (start-simulator))
 
@@ -115,25 +118,124 @@
     (udp-send s echo-p {:type :ping :request-id 777})
     (udp-send s echo-p {:type :pong
                         :request-id 888})
-    (c/terminate-peer curator (socket-address echo-p))
+    (cur/terminate-peer curator (c/socket-address echo-p))
     (Thread/sleep 200)
     (udp-send s echo-p {:type :ping :request-id 99999}))
   (do
     (def timer-p (create-timer-peer 0))
-    (c/terminate-peer curator (socket-address timer-p)))
+    (cur/terminate-peer curator (c/socket-address timer-p)))
   (do
     (def p1 @(create-dht-peer "127.0.0.1" 0 []))
     (def p2 @(create-dht-peer "127.0.0.1" 0 [p1]))
     (def p3 @(create-dht-peer "127.0.0.1" 0 [p2]))
     (def p4 @(create-dht-peer "127.0.0.1" 0 [p1]))
-    (deref (c/control-command curator p4 :put {:key "abc"
-                                               :value "THE VALUE!!!"
-                                               :ttl 10000
-                                               :trace? true
-                                               :trie? true}))
-    (prn (deref (c/control-command curator p3 :get {:key "abc"
-                                                    :trace? true})))
-    (prn (deref (c/control-command curator p3 :get-trie {:prefix "a"
-                                                         :trace? true}))))
-  (c/terminate-all-peers curator)
+    @(cur/control-command curator p4 :put {:key "abc"
+                                           :value "THE VALUE!!!"
+                                           :ttl 10000
+                                           :trace? true
+                                           :trie? true})
+    @(cur/control-command curator p3 :get {:key "abc"
+                                           :trace? true})
+    @(cur/control-command curator p3 :get-trie {:prefix "a"
+                                                :trace? true}))
+  (cur/terminate-all-peers curator)
   (sim-restart))
+
+(defn create-node [port]
+  (node/create-node {:host "127.0.0.1"
+                     :port port
+                     :num-threads 8
+                     :executor {}
+                     :tcp {}
+                     :ping-period 1000
+                     :exception-logger println}))
+
+(defn say [p & parts]
+  (let [pid (proc/get-pid p)
+        addr (conj (c/host-port (:endpoint pid)) (:number pid))]
+    (apply prn addr parts)))
+
+(comment
+  (prn *e)
+  (do
+    (def n1 (create-node 9211))
+    (def n2 (create-node 9212)))
+  (do
+    (def proc1
+     (proc/spawn-process
+       n1
+       (fn [p]
+         (flow
+          (let> [pid (proc/get-pid p)])
+          (proc/send-to p pid "rrr" "11111")
+          (=> (proc/receive-with-header p "r") msg)
+          (say p "receive 1" msg)
+          (say p "add to groups" (proc/add-to-groups p ["foo"]))
+          (say p "watch 'foo'" (proc/watch-group p "foo"))
+          (say p "watch 'bar'" (proc/watch-group p "bar"))
+          (=> (proc/sleep p 2000))
+          (say p "del from groups" (proc/delete-from-groups p ["bar"]))
+          (say p "add to groups" (proc/add-to-groups p ["bar"]))
+          (=> (proc/receive p 100) msg)
+          (say p "receive 2" msg)
+          (=> (proc/receive p 100) msg)
+          (say p "receive 3" msg)
+          (proc/spawn
+           p
+           (fn [p]
+             (flow
+               (say p "watch 'foo'" (proc/watch-group p "bar"))
+               (proc/add-to-groups p ["bar"])
+               (proc/send-to p pid "aaa" "1111")
+               (=> (proc/receive-with-header p "bb" 3000) msg)
+               (say p "receive 1" msg)
+               (=> (proc/receive-with-header p "ggg" 100) msg)
+               (say p "receive 2" msg)
+               (=> (proc/sleep p 2000))
+               (say p "SHOULD HAVE DIED"))))
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 4" msg)
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 5" msg)
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 6" msg)
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 7" msg)
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 8" msg)
+          (say p "add to groups" (proc/add-to-groups p ["foo"]))
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 9" msg)
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 8" msg)
+          (=> (proc/receive p 10000) msg)
+          (say p "SHOULD HAVE DIED")))))
+    (Thread/sleep 2000)
+    (def proc2
+      (proc/spawn-process
+       n2
+       (fn [p]
+         (flow
+          (say p "watch 'foo'" (proc/watch-group p "foo"))
+          (=> (proc/sleep p 2000))
+          (proc/add-to-groups p ["foo"])
+          (say p "watch 'bar'" (proc/watch-group p "bar"))
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 1" msg)
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 2" msg)
+          (let> [members (proc/get-group-members p "bar")])
+          (doseq [pid members]
+           (proc/send-to p pid "gggb" "1111"))
+          (=> (proc/sleep p 2000))
+          (proc/kill p (-> members sort second))
+          (=> (proc/receive p 1000) msg)
+          (say p "receive 3" msg)
+          (=> (proc/receive p 6000) msg)
+          (say p "receive 4" msg)))))
+    (node/connect-to n1 "127.0.0.1" 9212)
+    (Thread/sleep 5000)
+    (node/destroy-node n1))
+  (do
+    (node/destroy-node n1)
+    (node/destroy-node n2)))

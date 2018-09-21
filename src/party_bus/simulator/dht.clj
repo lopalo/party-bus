@@ -6,7 +6,7 @@
             [manifold.deferred :as md]
             [party-bus.peer.curator :as c]
             [party-bus.dht.peer :as p]
-            [party-bus.utils :as u]
+            [party-bus.core :refer [socket-address str->socket-address]]
             [party-bus.simulator.core
              :refer [not-blank? as-bool connect-ws edn-response edn-body]]))
 
@@ -27,16 +27,16 @@
 
 (defn- create-peer [curator config ip port contacts]
   (md/chain'
-   (p/create-peer curator config ip port (map u/str->socket-address contacts))
+   (p/create-peer curator config ip port (map str->socket-address contacts))
    (constantly (edn-response :ok))))
 
 (defn- terminate-peer [curator ip port]
-  (c/terminate-peer curator (u/socket-address ip port))
+  (c/terminate-peer curator (socket-address ip port))
   (edn-response :ok))
 
 (defn- listen-to-peer [curator req ip port]
   (connect-ws
-   (c/listen-to-peer curator (u/socket-address ip port)) req
+   (c/listen-to-peer curator (socket-address ip port)) req
    (fn [[old-st new-st]]
      (let [contacts-view (comp set (partial map first) vals :pointers)
            view #(-> %
@@ -52,20 +52,20 @@
 (defn- put-value [curator ip port {:keys [key value] :as args}]
   {:pre [(not-blank? key) (not-blank? value)]}
   (md/chain'
-   (c/control-command curator (u/socket-address ip port) :put args)
+   (c/control-command curator (socket-address ip port) :put args)
    edn-response))
 
 (defn- get-value [curator ip port key trace?]
   {:pre [(not-blank? key)]}
   (md/chain'
-   (c/control-command curator (u/socket-address ip port)
+   (c/control-command curator (socket-address ip port)
                       :get {:key key :trace? trace?})
    edn-response))
 
 (defn- get-trie [curator ip port prefix trace?]
   {:pre [(not-blank? prefix)]}
   (md/chain'
-   (c/control-command curator (u/socket-address ip port)
+   (c/control-command curator (socket-address ip port)
                       :get-trie {:prefix prefix :trace? trace?})
    edn-response))
 
@@ -73,7 +73,7 @@
   (when (seq dht-ips)
     (let [cur-conf (:curator @config)
           num-threads (:num-threads cur-conf)
-          exec-options (:executor-options cur-conf)]
+          exec-options (:executor cur-conf)]
       (->State config
                dht-ips
                (c/create-curator num-threads exec-options println)))))
