@@ -12,7 +12,8 @@
                  transport
                  process-number
                  processes
-                 groups])
+                 groups
+                 corks])
 (declare pid->vec)
 
 (defrecord ProcessId [endpoint number]
@@ -28,7 +29,7 @@
 
 (defrecord Mailbox [message-number messages header-index receiving])
 
-(defrecord ProcessContainer [mailbox watched-groups])
+(defrecord ProcessContainer [options mailbox watched-groups corked-nodes])
 
 (def terminated ::terminated)
 
@@ -44,34 +45,42 @@
 (defn member->groups [^Node node]
   (.member->groups ^Groups @(.groups node)))
 
+(declare kill*)
+
 (defn mailbox-put [^Node node number header body sender-pid]
   {:pre [(string? header)]}
   (let [^ProcessContainer
         proc (get @(.processes node) number)
         delivery (volatile! nil)]
-    (when proc
-      (swap! (.mailbox proc)
-             (fn [^Mailbox mb]
-               (vreset! delivery nil) ;;reset the previous attempt
-               (when mb
-                 (let [msg-num (.message-number mb)
-                       [prefix deferred] (.receiving mb)]
-                   (if (and deferred (starts-with? header prefix))
-                     (do
-                       (vreset! delivery [[header body sender-pid] deferred])
-                       (assoc mb :receiving nil))
-                     (-> mb
-                         (update :message-number inc)
-                         (assoc-in [:messages msg-num]
-                                   [header body sender-pid])
-                         (update :header-index conj [header msg-num]))))))))
-    (when-let [[msg deferred] @delivery]
-      (md/success! deferred msg))
-    nil))
+    (if proc
+      (do
+        (if (>= (-> proc .mailbox ^Mailbox deref .messages count)
+                (-> proc .options :hard-mailbox-size))
+          (kill* proc)
+          (swap!
+           (.mailbox proc)
+           (fn [^Mailbox mb]
+             (vreset! delivery nil) ;;reset the previous attempt
+             (when mb
+               (let [msg-num (.message-number mb)
+                     [prefix deferred] (.receiving mb)]
+                 (if (and deferred (starts-with? header prefix))
+                   (do
+                     (vreset! delivery [[header body sender-pid] deferred])
+                     (assoc mb :receiving nil))
+                   (-> mb
+                       (update :message-number inc)
+                       (assoc-in [:messages msg-num]
+                                 [header body sender-pid])
+                       (update :header-index conj [header msg-num]))))))))
+        (when-let [[msg deferred] @delivery]
+          (md/success! deferred msg))
+        :sent)
+      :not-sent)))
 
 (defn kill* [^ProcessContainer proc]
-  (some-> proc .mailbox (deref-reset! nil)
-          :receiving second
+  (some-> proc .mailbox ^Mailbox (deref-reset! nil)
+          .receiving second
           (md/error! terminated-error)))
 
 (defn kill [^Node node number]
@@ -139,3 +148,18 @@
          :group->watchers
          (fn [gws]
            (reduce #(disj-dissoc %1 %2 number) gws groups))))
+
+(defn mailbox-full?* [^ProcessContainer proc]
+  (boolean
+   (some-> proc .mailbox ^Mailbox deref .messages count
+           (>= (-> proc .options :soft-mailbox-size)))))
+
+(defn mailbox-full? [^Node node number]
+  (if-let [proc (get @(.processes node) number)]
+    (mailbox-full?* proc)
+    false))
+
+(defn modify-corked-nodes [^Node node number f]
+  (some-> node .processes deref
+          ^ProcessContainer (get number)
+          .corked-nodes (swap! f)))

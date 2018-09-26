@@ -1,8 +1,29 @@
 (ns party-bus.cluster.codec
   (:require [gloss.core :as g]
-            [party-bus.cluster.transport :refer [init-connection-c ping-c]]))
+            [gloss.core.protocols :refer [Reader Writer]]
+            [gloss.data.bytes.core :refer [dup-bytes]]
+            [byte-streams :refer [to-byte-array]]
+            [taoensso.nippy :refer [freeze thaw]]
+            [party-bus.cluster.transport :refer [init-connection-c ping-c]])
+  (:import [java.nio ByteBuffer]))
 
 (def string (g/finite-frame :uint32 (g/string :utf-8)))
+
+(g/defcodec edn
+  (g/finite-frame
+   :uint32
+   (reify
+     Reader
+     (read-bytes [this buf-seq]
+       (let [byte-arr (-> buf-seq dup-bytes to-byte-array)]
+         [true byte-arr nil]))
+     Writer
+     (sizeof [x]
+       nil)
+     (write-bytes [_ _ byte-arr]
+       [(ByteBuffer/wrap byte-arr)])))
+  freeze
+  thaw)
 
 (def process-number :int64)
 
@@ -15,14 +36,16 @@
           :add-to-groups
           :delete-from-groups
           :delete-from-all-groups
-          :kill))
+          :kill
+          :cork
+          :uncork))
 
 (g/defcodec letter
   {:type :letter
    :sender-number process-number
-   :receiver-number process-number
+   :receiver-numbers (g/repeated process-number)
    :header string
-   :body string})
+   :body edn})
 
 (g/defcodec merge-groups
   {:type :merge-groups
@@ -46,6 +69,14 @@
   {:type :kill
    :process-number process-number})
 
+(g/defcodec cork
+  {:type :cork
+   :process-number process-number})
+
+(g/defcodec uncork
+  {:type :uncork
+   :process-number process-number})
+
 (g/defcodec message
   (g/header
    msg-type
@@ -56,5 +87,7 @@
     :add-to-groups add-to-groups
     :delete-from-groups delete-from-groups
     :delete-from-all-groups delete-from-all-groups
-    :kill kill}
+    :kill kill
+    :cork cork
+    :uncork uncork}
    :type))

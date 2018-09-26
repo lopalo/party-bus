@@ -12,8 +12,6 @@
            [io.netty.channel.epoll EpollChannelOption]
            [io.netty.bootstrap Bootstrap ServerBootstrap]))
 
-(def ^:private default-stream-buffer-size 100)
-
 (declare server-bootstrap  client-bootstrap spawn-pinger)
 
 (defrecord EndpointConnected [endpoint])
@@ -36,12 +34,17 @@
   (events [this])
   (connect-to [this remote-endpoint])
   (send-to [this remote-endpoint msg])
+  (try-send-to [this remote-endpoint msg])
   (broadcast [this msg])
   (destroy [this]))
 
 (defn create-transport
-  [executor codec {:keys [host port tcp ping-period]
-                   :or {ping-period 1000}}]
+  [executor codec {:keys [host port tcp ping-period
+                          events-buffer-size
+                          connection-buffer-size]
+                   :or {ping-period 1000
+                        events-buffer-size 1000
+                        connection-buffer-size 100}}]
   (let [opts {:epoll? true
               :raw-stream? false}
         endpoint (c/socket-address host port)
@@ -53,12 +56,12 @@
                  #(if (= (% remote-endpoint) connection)
                     (dissoc % remote-endpoint)
                     %)))
-        events (ms/stream default-stream-buffer-size)
+        events (ms/stream events-buffer-size)
         events-source (ms/source-only events)
         transport (atom nil)
         wrap-connection
         (fn [connection]
-          (let [out (ms/stream default-stream-buffer-size)]
+          (let [out (ms/stream connection-buffer-size)]
             (ms/connect (ms/map (partial encode codec) out) connection)
             (ms/splice out (decode-stream connection codec))))
         init-connection
@@ -155,6 +158,13 @@
        (send-to [this remote-endpoint msg]
          (some-> @connections (get remote-endpoint) (ms/put! msg)))
 
+       (try-send-to [this remote-endpoint msg]
+         (if (some-> @connections
+                     (get remote-endpoint)
+                     (ms/try-put! msg 0) deref)
+           :sent
+           :not-sent))
+
        (broadcast [this msg]
          (apply md/zip'
                 (map #(when (ms/stream? %) (ms/put! % msg))
@@ -213,9 +223,10 @@
     (send-to t2 (c/socket-address "127.0.0.1" 9001)
              {:type :letter
               :sender-number 666
-              :receiver-number 777
+              :receiver-numbers [777]
               :header "The header!"
-              :body "Foo Bar Baz"}))
+              :body {#{11 22} :aaa
+                     #{22 :c} (repeat 10 [1 `F 3])}}))
   (do
     (destroy t1)
     (destroy t2)

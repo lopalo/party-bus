@@ -10,6 +10,8 @@
                  [manifold "0.1.6"]
                  [aleph "0.4.4"]
                  [gloss "0.2.6"]
+                 [byte-streams "0.2.4"]
+                 [com.taoensso/nippy "2.14.0"]
                  [ring/ring-core "1.6.3"]
                  [ring/ring-defaults "0.3.1"]
                  [ring-cors "0.1.11"]

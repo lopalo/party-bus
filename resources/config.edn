@@ -15,5 +15,12 @@
               :expired-cleanup-period 1000}}
  :cluster {:node {:num-threads 8
                   :executor {}
-                  :tcp {}
-                  :ping-period 4000}}}
+                  :tcp {:user-timeout 0
+                        :no-delay false}
+                  :ping-period 4000
+                  :events-buffer-size 1000
+                  :connection-buffer-size 100
+                  :soft-mailbox-size 100
+                  :hard-mailbox-size 1000}}}
+
+

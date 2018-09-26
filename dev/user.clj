@@ -146,8 +146,13 @@
                      :port port
                      :num-threads 8
                      :executor {}
-                     :tcp {}
+                     :tcp {:user-timeout 0
+                           :no-delay false}
                      :ping-period 1000
+                     :events-buffer-size 1000
+                     :connection-buffer-size 100
+                     :soft-mailbox-size 100
+                     :hard-mailbox-size 1000
                      :exception-logger println}))
 
 (defn say [p & parts]
@@ -158,11 +163,11 @@
 (comment
   (prn *e)
   (do
-    (def n1 (create-node 9211))
-    (def n2 (create-node 9212)))
+    (def n1 (create-node 9201))
+    (def n2 (create-node 9202)))
   (do
     (def proc1
-     (proc/spawn-process
+      (proc/spawn-process
        n1
        (fn [p]
          (flow
@@ -184,15 +189,16 @@
            p
            (fn [p]
              (flow
-               (say p "watch 'foo'" (proc/watch-group p "bar"))
-               (proc/add-to-groups p ["bar"])
-               (proc/send-to p pid "aaa" "1111")
-               (=> (proc/receive-with-header p "bb" 3000) msg)
-               (say p "receive 1" msg)
-               (=> (proc/receive-with-header p "ggg" 100) msg)
-               (say p "receive 2" msg)
-               (=> (proc/sleep p 2000))
-               (say p "SHOULD HAVE DIED"))))
+              (say p "watch 'foo'" (proc/watch-group p "bar"))
+              (proc/add-to-groups p ["bar"])
+              (proc/send-to p pid "aaa" "1111")
+              (=> (proc/receive-with-header p "bb" 3000) msg)
+              (say p "receive 1" msg)
+              (=> (proc/receive-with-header p "ggg" 100) msg)
+              (say p "receive 2" msg)
+              (=> (proc/sleep p 2000))
+              (say p "SHOULD HAVE DIED")))
+           {:soft-mailbox-size 2})
           (=> (proc/receive p 1000) msg)
           (say p "receive 4" msg)
           (=> (proc/receive p 1000) msg)
@@ -207,7 +213,7 @@
           (=> (proc/receive p 1000) msg)
           (say p "receive 9" msg)
           (=> (proc/receive p 1000) msg)
-          (say p "receive 8" msg)
+          (say p "receive 10" msg)
           (=> (proc/receive p 10000) msg)
           (say p "SHOULD HAVE DIED")))))
     (Thread/sleep 2000)
@@ -225,15 +231,16 @@
           (=> (proc/receive p 1000) msg)
           (say p "receive 2" msg)
           (let> [members (proc/get-group-members p "bar")])
-          (doseq [pid members]
-           (proc/send-to p pid "gggb" "1111"))
+          (say p "multicast"
+            (proc/multicast p members "gggb" "1111"))
           (=> (proc/sleep p 2000))
           (proc/kill p (-> members sort second))
           (=> (proc/receive p 1000) msg)
           (say p "receive 3" msg)
           (=> (proc/receive p 6000) msg)
           (say p "receive 4" msg)))))
-    (node/connect-to n1 "127.0.0.1" 9212)
+
+    (node/connect-to n1 "127.0.0.1" 9202)
     (Thread/sleep 5000)
     (node/destroy-node n1))
   (do
