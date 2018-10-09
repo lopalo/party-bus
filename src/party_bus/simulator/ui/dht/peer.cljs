@@ -9,49 +9,8 @@
 
 (declare put-form data-info)
 
-(def hooks
-  {:after-render
-   (fn [state]
-     (let [[_ {:keys [selected-peer *contacts ip->sim]}] (:rum/args state)
-           [ip port] selected-peer
-           *address (::address state)
-           *ws-c (::ws-c state)
-           *peer-state (::peer-state state)
-           active? #(= selected-peer @*address)]
-       (when (not= selected-peer @*address)
-         (when-let [ws-c @*ws-c] (async/close! ws-c))
-         (reset! *address selected-peer)
-         (reset! *peer-state nil)
-         (when selected-peer
-           (go
-             (let [ws-c (<! (c/connect-ws (ip->sim ip)
-                                          (<< "/dht/peer/~{ip}/~{port}")))]
-               (when (active?)
-                 (reset! *ws-c ws-c)
-                 (loop [{peer-state :message} (<! ws-c)]
-                   (when (and peer-state (active?))
-                     (let [p-contacts (:contacts peer-state)]
-                       (if-not @*peer-state
-                         (reset! *contacts
-                                 (for [c p-contacts] [selected-peer c]))
-                         (swap! *contacts
-                                (partial remove
-                                         (fn [[p p']]
-                                           (and (= p selected-peer)
-                                                (not (p-contacts p'))))))))
-                     (reset! *peer-state peer-state)
-                     (recur (<! ws-c)))))
-               (async/close! ws-c))))))
-     state)
-   :will-unmount
-   (fn [state]
-     (some-> state ::ws-c deref async/close!)
-     state)})
-
 (rum/defcs peer
   < rum/reactive
-  < (c/store nil ::address)
-  < (c/store nil ::ws-c)
   < (c/store nil ::peer-state)
   < (c/init-arg-atom
      first
@@ -59,27 +18,24 @@
       :get-trie-prefix ""
       :put-form nil
       :data-info nil})
-  < hooks
-  [state *local {:keys [*contacts *last-request show-route ip->sim]}]
+  [state *local {:keys [address *contacts *last-request show-route ip->sim]}]
   (let [curs (partial cursor *local)
-        *address (::address state)
-        address (react *address)
-        peer-state (-> state ::peer-state react)
         [ip port] address
+        *peer-state (-> state ::peer-state)
+        peer-state (react *peer-state)
         sim (ip->sim ip)
         *get-key (curs :get-key)
         *get-trie-pr (curs :get-trie-prefix)
         set-last-request
         (fn [k method response]
-          (when (= address @*address)
-            (let [basic {:key k
-                         :method method
-                         :ts (js/Date.now)}]
-              (if (map? response)
-                (do
-                  (reset! *last-request (merge basic response))
-                  (show-route))
-                (reset! *last-request (assoc basic :error response))))))
+          (let [basic {:key k
+                       :method method
+                       :ts (js/Date.now)}]
+            (if (map? response)
+              (do
+                (reset! *last-request (merge basic response))
+                (show-route))
+              (reset! *last-request (assoc basic :error response)))))
 
         do-get
         (fn []
@@ -100,13 +56,31 @@
                   res (<! (c/request :get sim
                                      (<< "/dht/get-trie/~{ip}/~{port}")
                                      :query-params params))]
-              (set-last-request prefix :get-trie (:body res)))))]
+              (set-last-request prefix :get-trie (:body res)))))
+        on-ws-message
+        (fn [peer-state]
+          (let [p-contacts (:contacts peer-state)]
+            (if-not @*peer-state
+              (reset! *contacts
+                      (for [c p-contacts] [address c]))
+              (swap! *contacts
+                     (partial remove
+                              (fn [[p p']]
+                                (and (= p address)
+                                     (not (p-contacts p'))))))))
+          (reset! *peer-state peer-state))]
     (ant/card
      {:title (str ip ":" port)}
      [:.peer
       {:key "content"}
       (when address
         [:div
+         (c/ws-listener {:value address
+                         :on-value-change #(reset! *peer-state nil)
+                         :connect
+                         #(c/connect-ws (ip->sim ip)
+                                        (<< "/dht/peer/~{ip}/~{port}"))
+                         :on-message on-ws-message})
          [:.row "Hash: " (c/hash- address)]
          (ant/button
           {:class :row

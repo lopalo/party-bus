@@ -29,7 +29,11 @@
 
 (defrecord Mailbox [message-number messages header-index receiving])
 
-(defrecord ProcessContainer [options mailbox watched-groups corked-nodes])
+(defrecord ProcessContainer [options
+                             mailbox
+                             watched-groups
+                             corked-nodes
+                             counter])
 
 (def terminated ::terminated)
 
@@ -97,10 +101,10 @@
                  body {:group g
                        :pid pid
                        (if added? :added? :deleted?) true}]
-           :when changed?
-           number (group->watchers g)]
+           :when changed?]
        (do
-         (mailbox-put node number header body nil)
+         (doseq [number (group->watchers g)]
+           (mailbox-put node number header body nil))
          g)))))
 
 (defn add-member [^Node node pid groups]

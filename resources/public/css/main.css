@@ -21,6 +21,14 @@
     padding: 1em;
 }
 
+.green {
+    color: #52c41a;
+}
+
+.red {
+    color: #f5222d;
+}
+
 .row {
     margin-bottom: 10px;
 }

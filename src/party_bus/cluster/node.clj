@@ -3,7 +3,6 @@
             [medley.core :refer [deref-reset!]]
             [manifold
              [executor :refer [fixed-thread-executor]]
-             [deferred :as md]
              [stream :as ms]]
             [party-bus.core :as c]
             [party-bus.cluster
@@ -19,10 +18,12 @@
             EndpointDisconnected
             Received]))
 
-(defn create-node [options]
+(defn create [options]
   (let [executor (fixed-thread-executor (:num-threads options)
                                         (:executor options))
-        transport (t/create-transport executor codec/message options)
+        transport (t/create executor codec/message
+                            (:transport options))
+
         endpoint (t/endpoint transport)
         node (Node. options
                     executor
@@ -91,12 +92,11 @@
              :uncork
              (swap! (.corks node) disj (ProcessId. ep (:process-number msg)))))))
      (ms/onto executor (t/events transport)))
-    node
     node))
 
 (defn connect-to [^Node node host port]
   (t/connect-to (.transport node) (c/socket-address host port)))
 
-(defn destroy-node [^Node node]
-  (t/destroy (.transport node))
+(defn shutdown [^Node node]
+  (t/shutdown (.transport node))
   (run! cc/kill* (vals (deref-reset! (.processes node) nil))))

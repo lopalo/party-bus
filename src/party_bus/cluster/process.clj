@@ -18,7 +18,8 @@
 
 (def ^:private default-options
   {:soft-mailbox-size 100
-   :hard-mailbox-size 1000})
+   :hard-mailbox-size 1000
+   :exception-handler println})
 
 (defprotocol ProcessInterface
   (get-pid [this])
@@ -43,7 +44,8 @@
     [this f]
     [this f options])
   (terminate [this])
-  (kill [this pid]))
+  (kill [this pid])
+  (increment [this]))
 
 (defn- receive* [executor mailbox prefix timeout]
   (let [delivery (volatile! nil)]
@@ -249,7 +251,11 @@
                      (.endpoint ^ProcessId pid')
                      {:type :kill
                       :process-number (.number ^ProcessId pid')}))
-        true))))
+        true)
+
+      (increment [this]
+        (terminated?!)
+        (swap! (.counter proc) inc)))))
 
 (defn spawn-process
   ([node f]
@@ -260,7 +266,8 @@
          number (swap! process-number inc)
          pid (ProcessId. (t/endpoint transport) number)
          mailbox (Mailbox. 0 (sorted-map) (sorted-set) nil)
-         proc (ProcessContainer. options (atom mailbox) (atom #{}) (atom #{}))]
+         proc (ProcessContainer.
+               options (atom mailbox) (atom #{}) (atom #{}) (atom 0))]
      (when (swap! processes assoc number proc)
        (ex/with-executor executor
          (md/finally'
@@ -268,7 +275,7 @@
            (md/chain (md/future-with executor
                                      (f (process-interface node pid proc))))
            #(when-not (= (-> % ex-data :reason) cc/terminated)
-              ((:exception-logger options) %)))
+              ((:exception-handler options) %)))
           (fn []
             (swap! processes dissoc number)
             (reset! (.mailbox proc) nil)
@@ -286,5 +293,3 @@
                            {:type :uncork
                             :process-number number}))))))))))
 
-(defn sleep [p interval]
-  (receive-with-header p "*sleep*" interval))

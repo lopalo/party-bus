@@ -1,6 +1,6 @@
 # party-bus
 
-![](docs/screenshot.jpg)
+![](docs/screenshot.png)
 
 Implementation of some distributed systems and
 a simulator for visualization and testing them.

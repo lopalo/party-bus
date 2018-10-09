@@ -17,7 +17,8 @@
              [codec :as dht-codec]]
             [party-bus.cluster
              [node :as node]
-             [process :as proc]]
+             [process :as proc]
+             [util :as cu]]
             [party-bus.simulator.server :as sim])
   (:import [party_bus.peer.core Period Init Terminate]))
 
@@ -97,7 +98,12 @@
   (sim/start-server {:config (io/resource "config.edn")
                      :listen-address "127.0.0.1:12080"
                      :connect-addresses #{"127.0.0.1:12080"}
-                     :dht-ips #{"127.0.0.2" "127.0.0.3" "127.0.0.4"}}))
+                     :dht-ips #{"127.0.0.2" "127.0.0.3" "127.0.0.4"}
+                     :local-node-addresses #{"127.0.0.1:12100"
+                                             "127.0.0.1:12101"
+                                             "127.0.0.1:12102"
+                                             "127.0.0.2:12100"
+                                             "127.0.0.2:12101"}}))
 
 (defonce curator (cur/create-curator 2 nil prn))
 (defonce config (atom (load-config)))
@@ -142,18 +148,18 @@
   (sim-restart))
 
 (defn create-node [port]
-  (node/create-node {:host "127.0.0.1"
-                     :port port
-                     :num-threads 8
-                     :executor {}
-                     :tcp {:user-timeout 0
-                           :no-delay false}
-                     :ping-period 1000
-                     :events-buffer-size 1000
-                     :connection-buffer-size 100
-                     :soft-mailbox-size 100
-                     :hard-mailbox-size 1000
-                     :exception-logger println}))
+  (node/create {:num-threads 8
+                :executor {}
+                :transport {:host "127.0.0.1"
+                            :port port
+                            :tcp {:user-timeout 0
+                                  :no-delay false}
+                            :ping-period 1000
+                            :events-buffer-size 1000
+                            :connection-buffer-size 100}
+                :soft-mailbox-size 100
+                :hard-mailbox-size 1000
+                :exception-handler println}))
 
 (defn say [p & parts]
   (let [pid (proc/get-pid p)
@@ -178,7 +184,7 @@
           (say p "add to groups" (proc/add-to-groups p ["foo"]))
           (say p "watch 'foo'" (proc/watch-group p "foo"))
           (say p "watch 'bar'" (proc/watch-group p "bar"))
-          (=> (proc/sleep p 2000))
+          (=> (cu/sleep p 2000))
           (say p "del from groups" (proc/delete-from-groups p ["bar"]))
           (say p "add to groups" (proc/add-to-groups p ["bar"]))
           (=> (proc/receive p 100) msg)
@@ -196,7 +202,7 @@
               (say p "receive 1" msg)
               (=> (proc/receive-with-header p "ggg" 100) msg)
               (say p "receive 2" msg)
-              (=> (proc/sleep p 2000))
+              (=> (cu/sleep p 2000))
               (say p "SHOULD HAVE DIED")))
            {:soft-mailbox-size 2})
           (=> (proc/receive p 1000) msg)
@@ -223,7 +229,7 @@
        (fn [p]
          (flow
           (say p "watch 'foo'" (proc/watch-group p "foo"))
-          (=> (proc/sleep p 2000))
+          (=> (cu/sleep p 2000))
           (proc/add-to-groups p ["foo"])
           (say p "watch 'bar'" (proc/watch-group p "bar"))
           (=> (proc/receive p 1000) msg)
@@ -232,8 +238,8 @@
           (say p "receive 2" msg)
           (let> [members (proc/get-group-members p "bar")])
           (say p "multicast"
-            (proc/multicast p members "gggb" "1111"))
-          (=> (proc/sleep p 2000))
+               (proc/multicast p members "gggb" "1111"))
+          (=> (cu/sleep p 2000))
           (proc/kill p (-> members sort second))
           (=> (proc/receive p 1000) msg)
           (say p "receive 3" msg)
@@ -242,7 +248,7 @@
 
     (node/connect-to n1 "127.0.0.1" 9202)
     (Thread/sleep 5000)
-    (node/destroy-node n1))
+    (node/shutdown n1))
   (do
-    (node/destroy-node n1)
-    (node/destroy-node n2)))
+    (node/shutdown n1)
+    (node/shutdown n2)))

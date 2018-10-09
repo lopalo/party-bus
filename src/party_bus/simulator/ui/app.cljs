@@ -7,7 +7,8 @@
             [party-bus.simulator.ui.core
              :as core
              :refer [store init-arg-atom]]
-            [party-bus.simulator.ui.dht :refer [dht]])
+            [party-bus.simulator.ui.dht :refer [dht]]
+            [party-bus.simulator.ui.cluster :refer [cluster]])
   (:require-macros [cljs.core.async.macros :refer [go-loop]]))
 
 (enable-console-print!)
@@ -23,8 +24,9 @@
   < (store #{} ::simulators)
   < (init-arg-atom
      first
-     {:content "dht"
-      :dht nil})
+     {:content "cluster"
+      :dht nil
+      :cluster nil})
   < {:did-mount
      (fn [state]
        (go-loop [addresses #{core/INITIAL-ADDRESS}]
@@ -66,6 +68,7 @@
        {:class :content-area}
        (case content
          "dht" (dht (curs :dht) {:simulators sims})
+         "cluster" (cluster (curs :cluster) {:simulators sims})
          "Unknown content"))))))
 
 (defonce *app-state (atom nil))

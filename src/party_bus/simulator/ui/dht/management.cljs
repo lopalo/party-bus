@@ -38,8 +38,6 @@
       :class :row}
      [:div
       {:key "content"}
-      [:.row
-       (ant/button {:type :primary :on-click reload} "Reload")]
       (ant/table
        {:class :row
         :pagination false
@@ -54,7 +52,14 @@
            :ips (for [s (->> sim-ips (map first) sort)]
                   (ant/tag {:key s :color :blue} s))})})
 
-      [:.row "Peers: " (reduce + (vals sim->total))]
+      [:.row
+       "Peers: "
+       (reduce + (vals sim->total))
+       " "
+       (ant/button {:shape :circle
+                    :size :small
+                    :icon :sync
+                    :on-click reload})]
       (ant/form
        {:class :row :layout :inline}
        (ant/form-item

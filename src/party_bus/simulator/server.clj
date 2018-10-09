@@ -11,10 +11,11 @@
             [rum.derived-atom :refer [derived-atom]]
             [party-bus.core :as c]
             [party-bus.simulator.dht :as dht]
+            [party-bus.simulator.cluster :as cluster]
             [party-bus.simulator.core :refer [edn-response]])
   (:import [java.io File Closeable]))
 
-(defrecord State [config connect-addresses dht])
+(defrecord State [config connect-addresses dht cluster])
 
 (defn- watch-config [config-src config]
   (let [^File file (io/file config-src)]
@@ -31,20 +32,26 @@
   (let [config-src (:config options)
         config (-> config-src c/load-edn atom)
         dht (dht/init-state (derived-atom [config] :dht :dht)
-                            (:dht-ips options))]
+                            (:dht-ips options))
+        cluster (cluster/init-state (derived-atom [config] :node :node)
+                                    (:local-node-addresses options)
+                                    (:remote-node-addresses options))]
     (future (watch-config config-src config))
-    (->State config (:connect-addresses options) dht)))
+    (->State config (:connect-addresses options) dht cluster)))
 
-(defn- destroy-state [{:keys [dht config]}]
+(defn- destroy-state [{:keys [dht cluster config]}]
   (dht/destroy-state dht)
+  (cluster/destroy-state cluster)
   (reset! config nil))
 
-(defn- make-handler [{:keys [connect-addresses dht]}]
+(defn- make-handler [{:keys [connect-addresses dht cluster]}]
   (routes
    (GET "/all-addresses" []
      (edn-response connect-addresses))
    (context "/dht" []
-     (dht/make-handler dht))))
+     (dht/make-handler dht))
+   (context "/cluster" []
+     (cluster/make-handler cluster))))
 
 (defn- wrap-deferred [handler]
   (fn [request respond raise]

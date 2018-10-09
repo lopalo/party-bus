@@ -20,12 +20,19 @@
   IDeferred
   (render [d _] d))
 
-(defn translate-addresses [form]
-  (prewalk #(if (instance? InetSocketAddress %) (c/host-port %) %) form))
+(defmulti edn-transform type)
+
+(defmethod edn-transform :default [x] x)
+
+(defmethod edn-transform InetSocketAddress [a]
+  (c/host-port a))
+
+(defn- edn-transformation [form]
+  (prewalk edn-transform form))
 
 (defn edn-response [x]
   (-> x
-      translate-addresses
+      edn-transformation
       pr-str
       response
       (content-type "application/edn")))
@@ -44,8 +51,7 @@
      (ms/connect (->> stream
                       (ms/map f)
                       (ms/filter some?)
-                      (ms/map (comp pr-str translate-addresses)))
+                      (ms/map (comp pr-str edn-transformation)))
                  ws))))
 
 (def not-blank? (complement blank?))
-

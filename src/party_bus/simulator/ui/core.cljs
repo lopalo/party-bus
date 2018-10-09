@@ -2,6 +2,7 @@
   (:require [clojure.string :refer [join]]
             [cljs.core.async :as async :refer [chan <!]]
             [rum.core :as rum]
+            [antizer.rum :as ant]
             [cljs-http.client :as http]
             [chord.client :refer [ws-ch]]
             [cljs-hash.sha1 :refer [sha1]])
@@ -44,7 +45,7 @@
           (-> state :rum/args selector (swap! #(if (some? %) % data)))
           state)]
     {:init init
-     :did-remount #(init %2)}))
+     :before-render init}))
 
 (defn setter [*ref]
   #(reset! *ref (.. % -target -value)))
@@ -86,3 +87,45 @@
 
 (defn format-ts [ts]
   (.toLocaleString (js/Date. ts) "en-GB"))
+
+(defn bool-icon [value]
+  (ant/icon (if value
+              {:type :check
+               :class :green}
+              {:type :close
+               :class :red})))
+
+(rum/defc ws-listener
+  < (store nil ::value)
+  < (store nil ::ws-c)
+  < {:key-fn (fn [{v :value}] (str v))
+     :after-render
+     (fn [state]
+       (let [[{:keys [value
+                      connect
+                      on-value-change
+                      on-message]}] (:rum/args state)
+             *value (::value state)
+             *ws-c (::ws-c state)
+             active? #(= value @*value)]
+         (when (not= value @*value)
+           (when-let [ws-c @*ws-c]
+             (async/close! ws-c))
+           (reset! *value value)
+           (when on-value-change
+             (on-value-change))
+           (go
+             (let [ws-c (<! (connect))]
+               (when (active?)
+                 (reset! *ws-c ws-c)
+                 (loop [{msg :message} (<! ws-c)]
+                   (when (and msg (active?))
+                     (on-message msg)
+                     (recur (<! ws-c)))))
+               (async/close! ws-c)))))
+       state)
+     :will-unmount
+     (fn [state]
+       (some-> state ::ws-c deref async/close!)
+       state)}
+  [])

@@ -28,11 +28,11 @@
 (defn- create-peer [curator config ip port contacts]
   (md/chain'
    (p/create-peer curator config ip port (map str->socket-address contacts))
-   (constantly (edn-response :ok))))
+   (constantly (edn-response true))))
 
 (defn- terminate-peer [curator ip port]
   (c/terminate-peer curator (socket-address ip port))
-  (edn-response :ok))
+  (edn-response true))
 
 (defn- listen-to-peer [curator req ip port]
   (connect-ws

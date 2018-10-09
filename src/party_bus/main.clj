@@ -5,6 +5,9 @@
             [party-bus.simulator.server :as sim])
   (:gen-class))
 
+(defn- collect [m k v]
+  (update m k conj v))
+
 (def option-specs
   [["-h" "--help"]
    ["-C" "--config" "Configuration EDN file"
@@ -16,12 +19,22 @@
     :id :connect-addresses
     :required "HOST:PORT"
     :default #{}
-    :assoc-fn (fn [m k v] (update m k conj v))]
+    :assoc-fn collect]
    ["-d" "--dht-ip" "IPs of DHT peers"
     :id :dht-ips
     :required "IP"
     :default #{}
-    :assoc-fn (fn [m k v] (update m k conj v))]])
+    :assoc-fn collect]
+   ["-N" "--local-node-address" "Addresses of local nodes"
+    :id :local-node-addresses
+    :required "HOST:PORT"
+    :default #{}
+    :assoc-fn collect]
+   ["-n" "--remote-node-address" "Addresses of remote nodes"
+    :id :remote-node-addresses
+    :required "HOST:PORT"
+    :default #{}
+    :assoc-fn collect]])
 
 (defn -main
   [& args]

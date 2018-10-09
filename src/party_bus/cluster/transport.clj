@@ -36,9 +36,9 @@
   (send-to [this remote-endpoint msg])
   (try-send-to [this remote-endpoint msg])
   (broadcast [this msg])
-  (destroy [this]))
+  (shutdown [this]))
 
-(defn create-transport
+(defn create
   [executor codec {:keys [host port tcp ping-period
                           events-buffer-size
                           connection-buffer-size]
@@ -170,7 +170,7 @@
                 (map #(when (ms/stream? %) (ms/put! % msg))
                      (vals @connections))))
 
-       (destroy [this]
+       (shutdown [this]
          (reset! transport nil)
          (.close ^Closeable server)
          (run! #(when (ms/stream? %) (ms/close! %)) (vals @connections))
@@ -209,9 +209,9 @@
   (require '[party-bus.cluster.codec :as codec])
   (def ex (ex/fixed-thread-executor 4 {}))
   (do
-    (def t1 (create-transport ex codec/message {:host "127.0.0.1" :port 9001}))
-    (def t2 (create-transport ex codec/message {:host "127.0.0.1" :port 9002}))
-    (def t3 (create-transport ex codec/message {:host "127.0.0.1" :port 9003}))
+    (def t1 (create ex codec/message {:host "127.0.0.1" :port 9001}))
+    (def t2 (create ex codec/message {:host "127.0.0.1" :port 9002}))
+    (def t3 (create ex codec/message {:host "127.0.0.1" :port 9003}))
     (ms/consume (partial println "T1") (events t1))
     (ms/consume (partial println "T2") (events t2))
     (ms/consume (partial println "T3") (events t3)))
@@ -228,6 +228,6 @@
               :body {#{11 22} :aaa
                      #{22 :c} (repeat 10 [1 `F 3])}}))
   (do
-    (destroy t1)
-    (destroy t2)
-    (destroy t3)))
+    (shutdown t1)
+    (shutdown t2)
+    (shutdown t3)))
