@@ -2,7 +2,7 @@
 (ns party-bus.simulator.cluster
   (:require [clojure.set :refer [union]]
             [compojure
-             [core :refer [routes GET PUT POST DELETE]]
+             [core :refer [routes GET POST DELETE]]
              [coercions :refer [as-int]]]
             [manifold
              [deferred :as md]
@@ -20,12 +20,9 @@
 (defmethod edn-transform ProcessId [pid]
   (conj (-> pid :endpoint c/host-port) (:number pid)))
 
-(def ^:private service-specs
-  {:printer println})
-
 (def polling-period 1000)
 
-(defn- ->pid [ip port number]
+(defn ->pid [ip port number]
   (ProcessId. (c/socket-address ip port) number))
 
 (defn- agent-pid [p ip port]
@@ -33,7 +30,7 @@
         agent-pids (p/get-group-members p na/group)]
     (some #(when (= (:endpoint %) address) %) agent-pids)))
 
-(defmacro ^:private exec [node process-binding & body]
+(defmacro exec [node process-binding & body]
   `(md/chain'
     (p/spawn-process
      ~node
@@ -42,7 +39,7 @@
      {:exception-handler md/error-deferred})
     edn-response))
 
-(defn- poll [f req]
+(defn poll [f req]
   (let [s (ms/stream 1 nil)]
     (connect-ws s req)
     (md/finally'
@@ -67,14 +64,20 @@
             (u/call p agent-pid "get-groups" nil 1000))
          req)))
 
-(defn- members [node ip port group req]
-  (exec node p
-        (poll
-         #(let [agent-pid (agent-pid p ip port)]
-            (u/call p agent-pid "get-group-members" group 1000))
-         req)))
+(defn members
+  ([node group req]
+   (exec node p
+         (poll #(or (p/get-group-members p group) #{}) req)))
+  ([node ip port group req]
+   (exec node p
+         (poll
+          #(let [agent-pid (agent-pid p ip port)]
+             (md/chain'
+              (u/call p agent-pid "get-group-members" group 1000)
+              (fn [m] (or m #{}))))
+          req))))
 
-(defn- spawn-service [node ip port body]
+(defn spawn-service [node ip port body]
   (exec node p
         (let [agent-pid (agent-pid p ip port)]
           (p/send-to p agent-pid "spawn-service" body))))
@@ -83,7 +86,7 @@
   (exec node p
         (p/kill p (->pid ip port number))))
 
-(defn init-state [config local-addresses remote-addresses]
+(defn init-state [config local-addresses remote-addresses service-specs]
   (doall
    (for [address local-addresses
          :let [[ip port] (c/str->host-port address)
@@ -109,6 +112,8 @@
      (groups node ip port req))
    (GET "/members/:ip/:port/:group" [ip port :<< as-int group :as req]
      (members node ip port group req))
+   (GET "/members/:group" [group :as req]
+     (members node group req))
    (POST "/spawn-service/:ip/:port" [ip port :<< as-int :as req]
      (spawn-service node ip port (edn-body req)))
    (DELETE "/kill/:ip/:port/:number" [ip port :<< as-int number :<< as-int]

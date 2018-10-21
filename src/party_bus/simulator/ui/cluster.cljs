@@ -1,6 +1,5 @@
 (ns party-bus.simulator.ui.cluster
-  (:require [goog.object :as o]
-            [clojure.set :refer [union]]
+  (:require [clojure.set :refer [union]]
             [clojure.string :as s]
             [cljs.core.async :refer [<!]]
             [medley.core :refer [map-kv]]
@@ -12,10 +11,15 @@
                    [cljs.core.async.macros :refer [go]]))
 
 (defn node->str [[ip port]]
-  (str ip ":" port))
+  (when ip
+    (str ip ":" port)))
 
 (defn str->node [s]
-  (s/split s #":"))
+  (-> s (s/split #":") vec (update 1 int)))
+
+(defn pid->str [[ip port n]]
+  (when ip
+    (str ip ":" port "|" n)))
 
 (defn load-connectivity [state]
   (go
@@ -88,7 +92,7 @@
         :on-value-change #(reset! *groups nil)
         :connect
         #(c/connect-ws simulator (<< "/cluster/groups/~{ip}/~{port}"))
-        :on-message #(when (set? %) (reset! *groups %))})
+        :on-message #(reset! *groups %)})
       (when selected-group
         (c/ws-listener
          {:value [node selected-group]
@@ -97,7 +101,7 @@
           #(c/connect-ws
             simulator
             (<< "/cluster/members/~{ip}/~{port}/~{selected-group}"))
-          :on-message #(when (set? %) (reset! *members %))}))
+          :on-message #(reset! *members %)}))
       (ant/collapse
        {:accordion true
         :active-key selected-group
@@ -116,9 +120,10 @@
                          (ant/button {:shape :circle
                                       :type :danger
                                       :icon :close
+                                      :disabled (= g "nodes")
                                       :on-click #(kill pid)}))}]
-            :data-source (for [[ip port n :as pid] (sort members)
-                               :let [s (str ip ":" port "|" n)]]
+            :data-source (for [pid (sort members)
+                               :let [s (pid->str pid)]]
                            {:key s
                             :pid s
                             :kill pid})}))))])))

@@ -7,7 +7,7 @@
              [core :as g]
              [io :refer [encode decode-stream]]]
             [aleph.tcp :refer [start-server client]]
-            [party-bus.core :refer [flow => let> when>] :as c])
+            [party-bus.core :refer [flow => let> if>] :as c])
   (:import [java.io Closeable]
            [io.netty.channel.epoll EpollChannelOption]
            [io.netty.bootstrap Bootstrap ServerBootstrap]))
@@ -107,9 +107,7 @@
                              connection
                              %))
                       accepted? (= (cs remote-endpoint) connection)])
-               (when-not accepted?
-                 (ms/close! connection))
-               (when> accepted?)
+               (if> accepted? :else (ms/close! connection))
                (=> (ms/put! connection {:type :ping :other-endpoints []}))
                (init-connection remote-endpoint connection))))
          (assoc opts
@@ -136,16 +134,16 @@
              (ex/with-executor executor
                (md/finally'
                 (flow
-                  (when> watched?)
+                  (if> watched?)
                   (=> (md/catch' (client opts)
                                  (constantly nil))
                       connection)
-                  (when> connection)
+                  (if> connection)
                   (let> [connection (wrap-connection connection)])
                   (=> (ms/put! connection {:type :init-connection
                                            :endpoint endpoint}))
                   (=> (ms/take! connection) response)
-                  (when> response)
+                  (if> response)
                   (let> [cs (swap-connection!
                              remote-endpoint
                              #(if (= % sentinel) connection %))

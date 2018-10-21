@@ -7,6 +7,10 @@
 (defn sleep [p interval]
   (p/receive-with-header p "*sleep*" interval))
 
+(defn sleep-recur [p interval & args]
+  (md/chain' (sleep p interval)
+             (fn [_] (apply md/recur args))))
+
 (def default-call-timeout 20000)
 
 (defn msg-type [msg]
@@ -54,3 +58,9 @@
              (if (= (count result') (count pids))
                result'
                (md/recur result' ts' to')))))))))
+
+(defn receive-loop [handler p params initial-state]
+  (md/loop [state initial-state]
+    (md/chain' (p/receive p)
+               (fn [msg]
+                 (md/recur (handler p params state msg))))))

@@ -15,12 +15,15 @@
               :expired-cleanup-period 1000}}
  :node {:num-threads 8
         :executor {}
-        :transport {:tcp {:user-timeout 0
+        :transport {:tcp {:user-timeout 1000
                           :no-delay false}
-                    :ping-period 4000
+                    :ping-period 2000
                     :events-buffer-size 1000
                     :connection-buffer-size 100}
         :soft-mailbox-size 100
-        :hard-mailbox-size 1000}}
+        :hard-mailbox-size 1000}
+ :paxos {:election-pause 4000
+         :round-pause [1000 2500]
+         :request-timeout 1000}}
 
 

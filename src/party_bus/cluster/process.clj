@@ -237,7 +237,23 @@
         (spawn this f nil))
       (spawn [this f options]
         (terminated?!)
-        (spawn-process node f options)
+        (let [ch-num (md/deferred)
+              ch-proc
+              (spawn-process node
+                             (fn [p]
+                               (md/success! ch-num
+                                            (.number ^ProcessId (get-pid p)))
+                               (f p))
+                             (dissoc options :bound?))]
+          (when (and (:bound? options) ch-proc)
+            (md/chain'
+             ch-num
+             (fn [child-number]
+               (let [bound-numbers (swap! (.bound-numbers proc)
+                                          #(when % (conj % child-number)))]
+                 (when-not (contains? bound-numbers child-number)
+                   (cc/kill node child-number)
+                   (throw cc/terminated-error)))))))
         true)
 
       (terminate [this]
@@ -266,14 +282,18 @@
          number (swap! process-number inc)
          pid (ProcessId. (t/endpoint transport) number)
          mailbox (Mailbox. 0 (sorted-map) (sorted-set) nil)
-         proc (ProcessContainer.
-               options (atom mailbox) (atom #{}) (atom #{}) (atom 0))]
+         proc (ProcessContainer. options
+                                 (atom mailbox)
+                                 (atom #{})
+                                 (atom #{})
+                                 (atom 0)
+                                 (atom #{}))]
      (when (swap! processes assoc number proc)
        (ex/with-executor executor
          (md/finally'
           (md/catch'
-           (md/chain (md/future-with executor
-                                     (f (process-interface node pid proc))))
+           (md/chain' (md/future-with executor
+                                      (f (process-interface node pid proc))))
            #(when-not (= (-> % ex-data :reason) cc/terminated)
               ((:exception-handler options) %)))
           (fn []
@@ -281,7 +301,8 @@
             (reset! (.mailbox proc) nil)
             (let [groups (cc/delete-member node pid)
                   watched-groups (deref-reset! (.watched-groups proc) nil)
-                  corked-nodes (deref-reset! (.corked-nodes proc) nil)]
+                  corked-nodes (deref-reset! (.corked-nodes proc) nil)
+                  bound-numbers (deref-reset! (.bound-numbers proc) nil)]
               (when (seq groups)
                 (t/broadcast transport {:type :delete-from-all-groups
                                         :process-number number}))
@@ -291,5 +312,12 @@
                 (t/send-to transport
                            endpoint
                            {:type :uncork
-                            :process-number number}))))))))))
+                            :process-number number}))
+              (doseq [number bound-numbers]
+                (cc/kill node number))))))))))
 
+(defn add-to-group [p group]
+  (get (add-to-groups p [group]) group))
+
+(defn delete-from-group [p group]
+  (get (delete-from-groups p [group]) group))

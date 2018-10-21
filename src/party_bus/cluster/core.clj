@@ -33,7 +33,8 @@
                              mailbox
                              watched-groups
                              corked-nodes
-                             counter])
+                             counter
+                             bound-numbers])
 
 (def terminated ::terminated)
 

@@ -85,8 +85,8 @@
 (defn let> [bindings]
   (assert nil "let> used not in (flow ...) block"))
 
-(defn when> [test]
-  (assert nil "when> used not in (flow ...) block"))
+(defn if> [test & options]
+  (assert nil "if> used not in (flow ...) block"))
 
 (defn- form= [form v]
   (and (list? form) (= (resolve (first form)) v)))
@@ -104,8 +104,9 @@
                (list `(md/chain' ~form' (fn [~name] ~@(self forms)))))
              (form= form #'let>)
              (list `(let ~(second form) ~@(self forms)))
-             (form= form #'when>)
-             (list `(when ~(second form) ~@(self forms)))
+             (form= form #'if>)
+             (let [[_ test & {:keys [else]}] form]
+               (list `(if ~test (do ~@(self forms)) ~else)))
              :default
              (cons form (self forms))))
          body))))

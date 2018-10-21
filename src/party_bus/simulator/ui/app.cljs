@@ -8,7 +8,8 @@
              :as core
              :refer [store init-arg-atom]]
             [party-bus.simulator.ui.dht :refer [dht]]
-            [party-bus.simulator.ui.cluster :refer [cluster]])
+            [party-bus.simulator.ui.cluster :refer [cluster]]
+            [party-bus.simulator.ui.paxos :refer [paxos]])
   (:require-macros [cljs.core.async.macros :refer [go-loop]]))
 
 (enable-console-print!)
@@ -62,13 +63,15 @@
         {:theme :dark
          :selected-keys [content]
          :on-click (fn [e] (reset! *content (.-key e)))}
-        (menu-item "cluster" "Cluster" :cloud)
+        (menu-item "cluster" "Cluster" :cloud-o)
+        (menu-item "paxos" "Paxos" :like-o)
         (menu-item "dht" "DHT" :api)))
       (ant/layout-content
        {:class :content-area}
        (case content
-         "dht" (dht (curs :dht) {:simulators sims})
          "cluster" (cluster (curs :cluster) {:simulators sims})
+         "paxos" (paxos (curs :paxos) {:simulators sims})
+         "dht" (dht (curs :dht) {:simulators sims})
          "Unknown content"))))))
 
 (defonce *app-state (atom nil))

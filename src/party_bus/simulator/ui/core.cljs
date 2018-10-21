@@ -116,13 +116,14 @@
              (on-value-change))
            (go
              (let [ws-c (<! (connect))]
-               (when (active?)
-                 (reset! *ws-c ws-c)
-                 (loop [{msg :message} (<! ws-c)]
-                   (when (and msg (active?))
-                     (on-message msg)
-                     (recur (<! ws-c)))))
-               (async/close! ws-c)))))
+               (when ws-c
+                 (when (active?)
+                   (reset! *ws-c ws-c)
+                   (loop [{msg :message} (<! ws-c)]
+                     (when (and msg (active?))
+                       (on-message msg)
+                       (recur (<! ws-c)))))
+                 (async/close! ws-c))))))
        state)
      :will-unmount
      (fn [state]

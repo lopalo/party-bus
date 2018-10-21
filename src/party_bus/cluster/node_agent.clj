@@ -7,16 +7,16 @@
 
 (defn- spawn-service
   [p service-specs {:keys [service parameters groups process-options]}]
-  (p/spawn
-   (fn [p]
-     (p/add-to-groups p groups)
-     ((service-specs service) p parameters))
-   process-options))
+  (p/spawn p
+           (fn [p]
+             (p/add-to-groups p groups)
+             ((service-specs service) p parameters))
+           process-options))
 
 (def group "nodes")
 
 (defn process [p service-specs]
-  (p/add-to-groups p [group])
+  (p/add-to-group p group)
   (md/loop []
     (flow
       (=> (p/receive p) [_ body :as msg])

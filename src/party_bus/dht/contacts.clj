@@ -1,6 +1,6 @@
 (ns party-bus.dht.contacts
   (:require [manifold.deferred :as md]
-            [party-bus.core :refer [flow => when>]]
+            [party-bus.core :refer [flow => if>]]
             [party-bus.peer.interface :refer [get-address
                                               get-state
                                               update-state-in
@@ -63,7 +63,7 @@
        (core/send-to p address {:type :ping :request-id req-id})
        (flow
          (=> d {timeout? :timeout?})
-         (when> timeout?)
+         (if> timeout?)
          (update-state-in
           p [:contacts :pointers]
           (fn [pointers]
