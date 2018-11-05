@@ -13,10 +13,11 @@
             [party-bus.simulator.core :refer [edn-response]]
             [party-bus.simulator.dht :as dht]
             [party-bus.simulator.cluster :as cluster]
-            [party-bus.simulator.paxos :as paxos])
+            [party-bus.simulator.paxos :as paxos]
+            [party-bus.simulator.db :as db])
   (:import [java.io File Closeable]))
 
-(defrecord State [config connect-addresses dht cluster paxos])
+(defrecord State [config connect-addresses dht cluster paxos db])
 
 (defn- watch-config [config-src config]
   (let [^File file (io/file config-src)]
@@ -36,22 +37,25 @@
                             (:dht-ips options))
         service-specs (merge
                        {}
-                       paxos/service-specs)
+                       paxos/service-specs
+                       db/service-specs)
         cluster (cluster/init-state (derived-atom [config] :node :node)
                                     (:local-node-addresses options)
                                     (:remote-node-addresses options)
                                     service-specs)
-        paxos (paxos/init-state (derived-atom [config] :paxos :paxos))]
+        paxos (paxos/init-state (derived-atom [config] :paxos :paxos))
+        db (db/init-state (derived-atom [config] :db :db))]
     (future (watch-config config-src config))
-    (->State config (:connect-addresses options) dht cluster paxos)))
+    (->State config (:connect-addresses options) dht cluster paxos db)))
 
-(defn- destroy-state [{:keys [dht cluster paxos config]}]
+(defn- destroy-state [{:keys [dht cluster paxos db config]}]
   (dht/destroy-state dht)
   (cluster/destroy-state cluster)
   (paxos/destroy-state paxos)
+  (db/destroy-state db)
   (reset! config nil))
 
-(defn- make-handler [{:keys [connect-addresses dht cluster paxos]}]
+(defn- make-handler [{:keys [connect-addresses dht cluster paxos db]}]
   (routes
    (GET "/all-addresses" []
      (edn-response connect-addresses))
@@ -60,7 +64,9 @@
    (context "/cluster" []
      (cluster/make-handler cluster))
    (context "/paxos" []
-     (paxos/make-handler paxos cluster))))
+     (paxos/make-handler paxos cluster))
+   (context "/db" []
+     (db/make-handler db cluster))))
 
 (defn- wrap-deferred [handler]
   (fn [request respond raise]

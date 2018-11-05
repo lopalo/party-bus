@@ -24,6 +24,15 @@
         :hard-mailbox-size 1000}
  :paxos {:election-pause 4000
          :round-pause [1000 2500]
-         :request-timeout 1000}}
+         :request-timeout 1000}
+ :db {:worker-amount 8
+      :key-spaces {:foo {:storage :in-memory+disk
+                         :source "resources/db/foo"
+                         :create? true
+                         :options {:keys-history 100
+                                   :value-history 20
+                                   :queue-history 10
+                                   :log-write-period 100
+                                   :log-compaction-size 104857600}}}}}
 
 

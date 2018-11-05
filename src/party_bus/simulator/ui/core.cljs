@@ -130,3 +130,8 @@
        (some-> state ::ws-c deref async/close!)
        state)}
   [])
+
+(defn create-ant-form
+  [form & {:keys [options args] :or {options {} args []}}]
+  (let [props #js {":rum/initial-state" {:rum/args args}}]
+    (ant/create-form form :options options :props props)))

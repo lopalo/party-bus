@@ -15,11 +15,19 @@
     (str ip ":" port)))
 
 (defn str->node [s]
-  (-> s (s/split #":") vec (update 1 int)))
+  (when s
+    (let [[ip port] (s/split s #":")]
+      [ip (int port)])))
 
 (defn pid->str [[ip port n]]
   (when ip
     (str ip ":" port "|" n)))
+
+(defn str->pid [s]
+  (when s
+    (let [[node number] (s/split s #"\|")
+          [ip port] (str->node node)]
+      [ip port (int number)])))
 
 (defn load-connectivity [state]
   (go

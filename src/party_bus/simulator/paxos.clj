@@ -1,6 +1,5 @@
 (ns party-bus.simulator.paxos
-  (:require [manifold.deferred :as md]
-            [compojure
+  (:require [compojure
              [core :refer [routes GET POST]]
              [coercions :refer [as-int]]]
             [party-bus.cluster
@@ -18,8 +17,7 @@
 (defn- proposer [p params]
   (let [leader-process (fn [p epoch]
                          (p/add-to-group p (str paxos-group ":epoch:" epoch))
-                         (md/loop []
-                           (u/sleep-recur p 5000)))]
+                         (p/receive p))]
     (paxos/proposer p (merge
                        params
                        {:group-suffix paxos-group

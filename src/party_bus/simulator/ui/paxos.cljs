@@ -1,10 +1,5 @@
 (ns party-bus.simulator.ui.paxos
-  (:require [goog.object :as o]
-            [clojure.set :refer [union]]
-            [clojure.string :as s]
-            [cljs.core.async :refer [<!]]
-            [medley.core :refer [map-kv]]
-            [sablono.core :refer-macros [html]]
+  (:require [sablono.core :refer-macros [html]]
             [rum.core :as rum :refer [react cursor]]
             [antizer.rum :as ant]
             [party-bus.simulator.ui.core :as c]

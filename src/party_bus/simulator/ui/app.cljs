@@ -9,7 +9,8 @@
              :refer [store init-arg-atom]]
             [party-bus.simulator.ui.dht :refer [dht]]
             [party-bus.simulator.ui.cluster :refer [cluster]]
-            [party-bus.simulator.ui.paxos :refer [paxos]])
+            [party-bus.simulator.ui.paxos :refer [paxos]]
+            [party-bus.simulator.ui.db :refer [db]])
   (:require-macros [cljs.core.async.macros :refer [go-loop]]))
 
 (enable-console-print!)
@@ -27,7 +28,9 @@
      first
      {:content "cluster"
       :dht nil
-      :cluster nil})
+      :cluster nil
+      :paxos nil
+      :db nil})
   < {:did-mount
      (fn [state]
        (go-loop [addresses #{core/INITIAL-ADDRESS}]
@@ -65,12 +68,14 @@
          :on-click (fn [e] (reset! *content (.-key e)))}
         (menu-item "cluster" "Cluster" :cloud-o)
         (menu-item "paxos" "Paxos" :like-o)
+        (menu-item "database" "Database" :database)
         (menu-item "dht" "DHT" :api)))
       (ant/layout-content
        {:class :content-area}
        (case content
          "cluster" (cluster (curs :cluster) {:simulators sims})
          "paxos" (paxos (curs :paxos) {:simulators sims})
+         "database" (db (curs :db) {:simulators sims})
          "dht" (dht (curs :dht) {:simulators sims})
          "Unknown content"))))))
 
