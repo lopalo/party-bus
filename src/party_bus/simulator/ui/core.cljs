@@ -131,7 +131,19 @@
        state)}
   [])
 
-(defn create-ant-form
-  [form & {:keys [options args] :or {options {} args []}}]
-  (let [props #js {":rum/initial-state" {:rum/args args}}]
+(defn create-form
+  [{:keys [form *state args *state] :or {*state (atom nil) args []}}]
+  (let [options {:on-values-change #(reset! *state (js->clj %3))}
+        props #js {":rum/initial-state" {:rum/args args}}]
     (ant/create-form form :options options :props props)))
+
+(defn form-item-maker [{:keys [form form-style *state]}]
+  (fn [field-name label options component]
+    (ant/form-item
+     (assoc form-style :label label)
+     (ant/decorate-field
+      form
+      field-name
+      (assoc options :initial-value
+             (some-> *state deref (get field-name)))
+      component))))

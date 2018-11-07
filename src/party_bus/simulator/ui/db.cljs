@@ -43,123 +43,101 @@
                 :let [n (node->str node)]]
             (ant/select-option {:value n} n)))
          " "
-         (when selected-node
-           (ant/button {:type :primary
-                        :on-click spawn}
-                       "Spawn controller"))])])))
+         (ant/button {:type :primary
+                      :disabled (nil? selected-node)
+                      :on-click spawn}
+                     "Spawn controller")])])))
 
 (rum/defcs request-form
   < rum/reactive
-  [state workers on-submit]
+  [state workers *state on-submit]
   (let [form (ant/get-form state)
         form-style {:label-col {:span 8}
                     :wrapper-col {:span 16}}
-        commands ["get" "get-keys" "set" "del" "inc" "swap"]
-        default-command (first commands)
-        selected-command (or (ant/get-field-value form "command")
-                             default-command)]
+        form-item (c/form-item-maker {:form form
+                                      :form-style form-style
+                                      :*state *state})
+        commands ["get" "get-keys" "set" "del" "inc" "swap"]]
     (ant/form
      {:layout :horizontal}
-     (ant/form-item
-      (merge form-style {:label "Worker"})
-      (ant/decorate-field
-       form "worker" {:rules [{:required true}]}
-       (ant/select
-        (for [worker (sort workers)
-              :let [w (pid->str worker)]]
-          (ant/select-option {:value w} w)))))
-
-     (ant/form-item
-      (merge form-style {:label "Command"})
-      (ant/decorate-field
-       form "command" {:initial-value default-command}
-       (ant/select
-        (for [command commands
-              :let [c (name command)]]
-          (ant/select-option {:value c} c)))))
-     (case selected-command
+     (form-item
+      "worker" "Worker" {:rules [{:required true}]}
+      (ant/select
+       (for [worker (sort workers)
+             :let [w (pid->str worker)]]
+         (ant/select-option {:value w} w))))
+     (form-item
+      "command" "Command" {}
+      (ant/select
+       (for [command commands
+             :let [c (name command)]]
+         (ant/select-option {:value c} c))))
+     (case (ant/get-field-value form "command")
        "get"
-       (ant/form-item
-        (merge form-style {:label "Key"})
-        (ant/decorate-field
-         form "key" {:rules [{:required true
+       (form-item
+        "key" "Key" {:rules [{:required true
                               :whitespace true}]}
-         (ant/input)))
+        (ant/input))
        "set"
        (list
-        (ant/form-item
-         (merge form-style {:label "Key"})
-         (ant/decorate-field
-          form "key" {:rules [{:required true
+        (form-item
+         "key" "Key" {:rules [{:required true
                                :whitespace true}]}
-          (ant/input)))
-        (ant/form-item
-         (merge form-style {:label "Value"})
-         (ant/decorate-field
-          form "value" {:rules [{:required true
-                                 :whitespace true}]}
-          (ant/input))))
-       "del"
-       (ant/form-item
-        (merge form-style {:label "Key"})
-        (ant/decorate-field
-         form "key" {:rules [{:required true
-                              :whitespace true}]}
+         (ant/input))
+        (form-item
+         "value" "Value" {:rules [{:required true
+                                   :whitespace true}]}
          (ant/input)))
+       "del"
+       (form-item
+        "key" "Key" {:rules [{:required true
+                              :whitespace true}]}
+        (ant/input))
        "inc"
        (list
-        (ant/form-item
-         (merge form-style {:label "Key"})
-         (ant/decorate-field
-          form "key" {:rules [{:required true
+        (form-item
+         "key" "Key" {:rules [{:required true
                                :whitespace true}]}
-          (ant/input)))
-         ;;TODO: integer
-        (ant/form-item
-         (merge form-style {:label "Value"})
-         (ant/decorate-field
-          form "value" {:rules [{:required true
-                                 :whitespace true}]}
-          (ant/input))))
+         (ant/input))
+        (form-item
+         "value" "Value" {:rules [{:required true
+                                   :type :integer}]}
+         (ant/input-number)))
        "get-keys"
        (list
-        (ant/form-item
-         (merge form-style {:label "Start key"})
-         (ant/decorate-field
-          form "start-key" {:rules [{:required true
-                                     :whitespace true}]}
-          (ant/input)))
-        (ant/form-item
-         (merge form-style {:label "End key"})
-         (ant/decorate-field
-          form "end-key" {:rules [{:required true
-                                   :whitespace true}]}
-          (ant/input))))
-
+        (form-item
+         "start-key" "Start key" {:rules [{:required true
+                                           :whitespace true}]}
+         (ant/input))
+        (form-item
+         "end-key" "End key" {:rules [{:required true
+                                       :whitespace true}]}
+         (ant/input)))
        "swap"
        (list
-        (ant/form-item
-         (merge form-style {:label "Key"})
-         (ant/decorate-field
-          form "key" {:rules [{:required true
+        (form-item
+         "key" "Key" {:rules [{:required true
                                :whitespace true}]}
-          (ant/input)))
-        (ant/form-item
-         (merge form-style {:label "Key'"})
-         (ant/decorate-field
-          form "key'" {:rules [{:required true
-                                :whitespace true}]}
-          (ant/input))))) (when-not (:hide-buttons? state)
-                            (ant/form-item
-                             {:wrapper-col {:span 16 :offset 8}}
-                             (ant/button
-                              {:type :primary
-                               :on-click #(ant/validate-fields form on-submit)}
-                              "Submit"))))))
+         (ant/input))
+        (form-item
+         "key'" "Key'" {:rules [{:required true
+                                 :whitespace true}]}
+         (ant/input))))
+
+     (when-not (:hide-buttons? state)
+       (ant/form-item
+        {:wrapper-col {:span 16 :offset 8}}
+        (ant/button
+         {:type :primary
+          :on-click #(ant/validate-fields form on-submit)}
+         "Submit"))))))
 
 (rum/defcs request
   < rum/reactive
   < (c/store {} ::workers)
+  < (c/init-arg-atom
+     first
+     {"command" "set"})
   [state *local {:keys [simulator *response]}]
   (let [*workers (::workers state)
         workers (react *workers)
@@ -198,9 +176,9 @@
         :on-message #(when (not= @*workers %)
                        (reset! *workers %))})
       (when (seq workers)
-        (c/create-ant-form request-form
-                           :args [workers on-submit]
-                           :options))])))
+        (c/create-form {:form request-form
+                        :*state *local
+                        :args [workers *local on-submit]}))])))
 
 (rum/defcs response
   < rum/reactive

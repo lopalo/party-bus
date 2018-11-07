@@ -26,7 +26,7 @@
          :round-pause [1000 2500]
          :request-timeout 1000}
  :db {:worker-amount 8
-      :key-spaces {:foo {:storage :in-memory+disk
+      :key-spaces {:foo {:storage :persistent-in-memory
                          :source "resources/db/foo"
                          :create? true
                          :options {:keys-history 100

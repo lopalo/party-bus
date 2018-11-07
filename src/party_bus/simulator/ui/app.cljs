@@ -26,7 +26,7 @@
   < (store #{} ::simulators)
   < (init-arg-atom
      first
-     {:content "cluster"
+     {:content "database"
       :dht nil
       :cluster nil
       :paxos nil
