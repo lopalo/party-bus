@@ -95,6 +95,7 @@
           (flow
             (when-not (valid? (get-acceptors))
               (restart proposal-number))
+            (=> (u/drop-responses p))
             (=> (u/multicall p acceptor-pids "prepare" proposal-number rt) rs)
             (let> [values (vals rs)
                    promises (filter #(= (:status %) :promise) values)

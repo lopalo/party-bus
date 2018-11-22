@@ -31,8 +31,14 @@
                          :create? true
                          :options {:keys-history 100
                                    :value-history 20
-                                   :queue-history 10
                                    :log-write-period 100
-                                   :log-compaction-size 104857600}}}}}
-
+                                   :log-compaction-size 104857600}}
+                   :bar {:storage :persistent
+                         :source "resources/db/bar"
+                         :create? true
+                         :options {:key-page-size 128
+                                   :value-page-size 512
+                                   :write-period 1000
+                                   :working-set-capactity 1000
+                                   :eviction-period 1000}}}}}
 

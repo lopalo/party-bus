@@ -50,7 +50,7 @@
 
 (rum/defcs request-form
   < rum/reactive
-  [state workers *state on-submit]
+  [state workers key-spaces *state on-submit]
   (let [form (ant/get-form state)
         form-style {:label-col {:span 8}
                     :wrapper-col {:span 16}}
@@ -66,6 +66,11 @@
        (for [worker (sort workers)
              :let [w (pid->str worker)]]
          (ant/select-option {:value w} w))))
+     (form-item
+      "key-space" "Key space" {:rules [{:required true}]}
+      (ant/select
+       (for [ks (sort key-spaces)]
+         (ant/select-option {:value ks} ks))))
      (form-item
       "command" "Command" {}
       (ant/select
@@ -87,7 +92,13 @@
         (form-item
          "value" "Value" {:rules [{:required true
                                    :whitespace true}]}
-         (ant/input)))
+         (ant/input))
+        ;;TODO: show only when persistent storage is selected
+        (form-item
+         "pages" "Pages" {:rules [{:required false
+                                   :type :integer}]}
+         (ant/input-number
+          {:min 1})))
        "del"
        (form-item
         "key" "Key" {:rules [{:required true
@@ -134,13 +145,22 @@
 
 (rum/defcs request
   < rum/reactive
-  < (c/store {} ::workers)
+  < (c/store #{} ::workers)
+  < (c/store #{} ::key-spaces)
   < (c/init-arg-atom
      first
      {"command" "set"})
+  < {:did-mount
+     (fn [state]
+       (go
+         (let [sim (-> state :rum/args second :simulator)
+               {ks :body} (<! (c/request :get sim "/db/key-spaces"))]
+           (reset! (::key-spaces state) (map name ks))))
+       state)}
   [state *local {:keys [simulator *response]}]
   (let [*workers (::workers state)
         workers (react *workers)
+        key-spaces (react (::key-spaces state))
         on-submit
         (fn [errors values]
           (when (nil? errors)
@@ -149,7 +169,9 @@
                     {:keys [command worker]} values
                     [ip port number] (str->pid worker)
                     url (<< "/db/command/~{ip}/~{port}/~{number}/~{command}")
-                    params (dissoc values :command :worker)
+                    params (-> values
+                               (dissoc :command :worker)
+                               (update :key-space keyword))
                     params (if (= command "get-keys")
                              (-> params
                                  (dissoc :start-key :end-key)
@@ -178,7 +200,7 @@
       (when (seq workers)
         (c/create-form {:form request-form
                         :*state *local
-                        :args [workers *local on-submit]}))])))
+                        :args [workers key-spaces *local on-submit]}))])))
 
 (rum/defcs response
   < rum/reactive

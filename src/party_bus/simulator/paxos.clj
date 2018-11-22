@@ -29,13 +29,11 @@
    :paxos-proposer proposer})
 
 (defn- acceptors [node req]
-  (sc/exec node p
-           (sc/poll
-            #(let [pids (->> paxos-group
-                             (paxos/gr paxos/acceptor-group)
-                             (p/get-group-members p))]
-               (u/multicall p pids "get-state" nil 1000))
-            req)))
+  (sc/poll req node p
+           (let [pids (->> paxos-group
+                           (paxos/gr paxos/acceptor-group)
+                           (p/get-group-members p))]
+             (u/multicall p pids "get-state" nil 1000))))
 
 (defn init-state [config]
   config)
@@ -58,4 +56,3 @@
        (sc/spawn-service node ip port
                          {:service :paxos-proposer
                           :parameters params})))))
-

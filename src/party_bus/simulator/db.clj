@@ -40,6 +40,9 @@
 
 (defn make-handler [config [node]]
   (routes
+   (GET "/key-spaces" _
+     ;;TODO: return storage type
+     (-> @config :key-spaces keys set edn-response))
    (GET "/workers" req
      (sc/members node worker-group req))
    (POST "/spawn/:ip/:port" [ip port :<< as-int]
@@ -49,6 +52,5 @@
                         :groups [group]}))
    (POST "/command/:ip/:port/:number/:command-name"
      [ip port :<< as-int number :<< as-int command-name :as req]
-     (let [key-space (-> @config :key-spaces keys first)
-           params (-> req edn-body (assoc :key-space key-space))]
+     (let [params (edn-body req)]
        (command node ip port number command-name params)))))

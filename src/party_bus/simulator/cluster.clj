@@ -39,7 +39,7 @@
      {:exception-handler md/error-deferred})
     edn-response))
 
-(defn poll [f req]
+(defn poll* [req f]
   (let [s (ms/stream 1 nil)]
     (connect-ws s req)
     (md/finally'
@@ -52,30 +52,33 @@
            (md/recur))))
      #(ms/close! s))))
 
+(defmacro poll [req node process-binding & body]
+  `(exec ~node ~process-binding
+         (poll* ~req (fn []
+                       (md/chain'
+                        (u/drop-responses ~process-binding)
+                        (fn [~'_] ~@body))))))
+
 (defn- connectivity [node]
   (exec node p
         (let [agent-pids (p/get-group-members p na/group)]
           (u/multicall p agent-pids "get-node-agents" nil 1000))))
 
 (defn- groups [node ip port req]
-  (exec node p
-        (poll
-         #(let [agent-pid (agent-pid p ip port)]
-            (u/call p agent-pid "get-groups" nil 1000))
-         req)))
+  (poll req node p
+        (let [agent-pid (agent-pid p ip port)]
+          (u/call p agent-pid "get-groups" nil 1000))))
 
 (defn members
   ([node group req]
-   (exec node p
-         (poll #(or (p/get-group-members p group) #{}) req)))
+   (poll req node p
+         (or (p/get-group-members p group) #{})))
   ([node ip port group req]
-   (exec node p
-         (poll
-          #(let [agent-pid (agent-pid p ip port)]
-             (md/chain'
-              (u/call p agent-pid "get-group-members" group 1000)
-              (fn [m] (or m #{}))))
-          req))))
+   (poll req node p
+         (let [agent-pid (agent-pid p ip port)]
+           (md/chain'
+            (u/call p agent-pid "get-group-members" group 1000)
+            (fn [m] (or m #{})))))))
 
 (defn spawn-service [node ip port body]
   (exec node p

@@ -6,6 +6,7 @@
                  [org.clojure/core.async  "0.3.443"]
                  [org.clojure/tools.cli "0.3.5"]
                  [org.clojure/core.incubator "0.1.4"]
+                 [org.clojure/data.avl "0.0.18"]
                  [medley "1.0.0"]
                  [manifold "0.1.6"]
                  [aleph "0.4.4"]

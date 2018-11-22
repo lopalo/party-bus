@@ -1,7 +1,7 @@
 (ns party-bus.cluster.util
   (:require [clojure.string :refer [split]]
             [manifold.deferred :as md]
-            [party-bus.core :as c :refer [flow => let>]]
+            [party-bus.core :as c :refer [flow => let> if>]]
             [party-bus.cluster.process :as p]))
 
 (defn sleep [p interval]
@@ -20,6 +20,13 @@
   (let [number (p/increment p)]
     [(format "%s:%020d" header number)
      (format "response:%020d" number)]))
+
+(defn drop-responses [p]
+  (md/loop []
+    (flow
+      (=> (p/receive-with-header p "response:" 0) response)
+      (if> (not= response :timeout))
+      (md/recur))))
 
 (defn response [p req-msg resp-body]
   (let [[header _ pid] req-msg

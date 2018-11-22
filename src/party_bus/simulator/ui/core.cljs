@@ -137,10 +137,11 @@
         props #js {":rum/initial-state" {:rum/args args}}]
     (ant/create-form form :options options :props props)))
 
+;;TODO: come up with something more elegant
 (defn form-item-maker [{:keys [form form-style *state]}]
   (fn [field-name label options component]
     (ant/form-item
-     (assoc form-style :label label)
+     (assoc form-style :label label :key field-name)
      (ant/decorate-field
       form
       field-name
