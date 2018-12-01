@@ -286,6 +286,7 @@
             (ref-set *pages pages'))))
 
       (del-value [this key]
+        (commute access-time c/idx-dissoc key)
         (sc/del-value ims key))
 
       (get-key-range [this test key options]

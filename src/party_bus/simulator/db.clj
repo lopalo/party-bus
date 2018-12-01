@@ -1,5 +1,6 @@
 (ns party-bus.simulator.db
-  (:require [compojure
+  (:require [medley.core :refer [map-vals]]
+            [compojure
              [core :refer [routes GET POST]]
              [coercions :refer [as-int]]]
             [party-bus.cluster
@@ -41,8 +42,7 @@
 (defn make-handler [config [node]]
   (routes
    (GET "/key-spaces" _
-     ;;TODO: return storage type
-     (-> @config :key-spaces keys set edn-response))
+     (->> @config :key-spaces (map-vals :storage) edn-response))
    (GET "/workers" req
      (sc/members node worker-group req))
    (POST "/spawn/:ip/:port" [ip port :<< as-int]

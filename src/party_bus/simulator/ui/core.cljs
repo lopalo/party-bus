@@ -1,5 +1,6 @@
 (ns party-bus.simulator.ui.core
-  (:require [clojure.string :refer [join]]
+  (:require [goog.object :as gobj]
+            [clojure.string :refer [join]]
             [cljs.core.async :as async :refer [chan <!]]
             [rum.core :as rum]
             [antizer.rum :as ant]
@@ -131,20 +132,28 @@
        state)}
   [])
 
+(defn- wrap-field [field]
+  (js/antd.Form.createFormField field))
+
 (defn create-form
-  [{:keys [form *state args *state] :or {*state (atom nil) args []}}]
-  (let [options {:on-values-change #(reset! *state (js->clj %3))}
+  [{:keys [form fields on-change args] :or {args []}}]
+  (let [options {:map-props-to-fields
+                 #(let [o #js {}]
+                    (doseq [[k v] (js/Object.entries fields)]
+                      (gobj/set o k (wrap-field v)))
+                    o)
+                 :on-fields-change #(on-change %2)}
         props #js {":rum/initial-state" {:rum/args args}}]
     (ant/create-form form :options options :props props)))
 
-;;TODO: come up with something more elegant
-(defn form-item-maker [{:keys [form form-style *state]}]
+(defn merge-fields [fields fields']
+  (js/Object.assign fields fields'))
+
+(defn field [init-value]
+  #js {"value" init-value})
+
+(defn form-item-maker [{:keys [form item-props]}]
   (fn [field-name label options component]
     (ant/form-item
-     (assoc form-style :label label :key field-name)
-     (ant/decorate-field
-      form
-      field-name
-      (assoc options :initial-value
-             (some-> *state deref (get field-name)))
-      component))))
+     (assoc item-props :label label :key field-name)
+     (ant/decorate-field form field-name options component))))

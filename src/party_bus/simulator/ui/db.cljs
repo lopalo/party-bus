@@ -50,26 +50,33 @@
 
 (rum/defcs request-form
   < rum/reactive
-  [state workers key-spaces *state on-submit]
+  < {:did-mount
+     (fn [state]
+       (let [form (ant/get-form state)
+             worker (-> form (ant/get-field-value "worker") str->pid)
+             workers (-> state :rum/args first)]
+         (when-not (contains? workers worker)
+           (ant/set-fields-value
+            form #js {"worker" (-> workers first pid->str)})))
+       state)}
+  [state workers key-spaces on-submit]
   (let [form (ant/get-form state)
         form-style {:label-col {:span 8}
                     :wrapper-col {:span 16}}
         form-item (c/form-item-maker {:form form
-                                      :form-style form-style
-                                      :*state *state})
+                                      :form-style form-style})
         commands ["get" "get-keys" "set" "del" "inc" "swap"]]
     (ant/form
      {:layout :horizontal}
      (form-item
       "worker" "Worker" {:rules [{:required true}]}
       (ant/select
-       (for [worker (sort workers)
-             :let [w (pid->str worker)]]
+       (for [w (->> workers sort (map pid->str))]
          (ant/select-option {:value w} w))))
      (form-item
       "key-space" "Key space" {:rules [{:required true}]}
       (ant/select
-       (for [ks (sort key-spaces)]
+       (for [ks (->> key-spaces keys sort (map name))]
          (ant/select-option {:value ks} ks))))
      (form-item
       "command" "Command" {}
@@ -83,6 +90,7 @@
         "key" "Key" {:rules [{:required true
                               :whitespace true}]}
         (ant/input))
+
        "set"
        (list
         (form-item
@@ -93,17 +101,20 @@
          "value" "Value" {:rules [{:required true
                                    :whitespace true}]}
          (ant/input))
-        ;;TODO: show only when persistent storage is selected
-        (form-item
-         "pages" "Pages" {:rules [{:required false
-                                   :type :integer}]}
-         (ant/input-number
-          {:min 1})))
+        (when (->> "key-space" (ant/get-field-value form)
+                   keyword key-spaces (= :persistent))
+          (form-item
+           "pages" "Pages" {:rules [{:min 1
+                                     :type :integer}]}
+           (ant/input-number
+            {:min 1}))))
+
        "del"
        (form-item
         "key" "Key" {:rules [{:required true
                               :whitespace true}]}
         (ant/input))
+
        "inc"
        (list
         (form-item
@@ -114,6 +125,7 @@
          "value" "Value" {:rules [{:required true
                                    :type :integer}]}
          (ant/input-number)))
+
        "get-keys"
        (list
         (form-item
@@ -124,6 +136,7 @@
          "end-key" "End key" {:rules [{:required true
                                        :whitespace true}]}
          (ant/input)))
+
        "swap"
        (list
         (form-item
@@ -146,18 +159,18 @@
 (rum/defcs request
   < rum/reactive
   < (c/store #{} ::workers)
-  < (c/store #{} ::key-spaces)
+  < (c/store {} ::key-spaces)
   < (c/init-arg-atom
      first
-     {"command" "set"})
+     #js {"command" (c/field "set")})
   < {:did-mount
      (fn [state]
        (go
          (let [sim (-> state :rum/args second :simulator)
                {ks :body} (<! (c/request :get sim "/db/key-spaces"))]
-           (reset! (::key-spaces state) (map name ks))))
+           (reset! (::key-spaces state) ks)))
        state)}
-  [state *local {:keys [simulator *response]}]
+  [state *fields {:keys [simulator *response]}]
   (let [*workers (::workers state)
         workers (react *workers)
         key-spaces (react (::key-spaces state))
@@ -199,8 +212,9 @@
                        (reset! *workers %))})
       (when (seq workers)
         (c/create-form {:form request-form
-                        :*state *local
-                        :args [workers key-spaces *local on-submit]}))])))
+                        :fields (react *fields)
+                        :on-change #(swap! *fields c/merge-fields %)
+                        :args [workers key-spaces on-submit]}))])))
 
 (rum/defcs response
   < rum/reactive
