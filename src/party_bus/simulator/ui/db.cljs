@@ -11,18 +11,28 @@
 (rum/defcs management
   < rum/reactive
   < (c/store [] ::nodes)
+  < (c/store [] ::coordinator-acceptors)
+  < (c/store [] ::coordinators)
   < (c/init-arg-atom
      first
      {:selected-node nil})
   [state *local {:keys [simulator]}]
   (let [*nodes (::nodes state)
         nodes (react *nodes)
+        *coordinator-acceptors (::coordinator-acceptors state)
+        coordinator-acceptors (react *coordinator-acceptors)
+        *coordinators (::coordinators state)
+        coordinators (react *coordinators)
         *selected-node (cursor *local :selected-node)
         selected-node (react *selected-node)
-        spawn
+        spawn-controller
         #(let [[ip port] (-> selected-node str->node)]
            (c/request :post simulator
-                      (<< "/db/spawn/~{ip}/~{port}")))]
+                      (<< "/db/spawn/~{ip}/~{port}")))
+        spawn-coordinators
+        #(c/request :post simulator
+                    (<< "/db/spawn/coordinators")
+                    :edn-params coordinator-acceptors)]
     (ant/card
      {:title "Management"}
      [:div
@@ -33,20 +43,38 @@
         :connect
         #(c/connect-ws simulator (<< "/cluster/members/nodes"))
         :on-message #(reset! *nodes %)})
-      (when (seq nodes)
-        [:div
-         (ant/select
-          {:style {:width 200}
-           :value selected-node
-           :on-change (partial reset! *selected-node)}
-          (for [node (sort nodes)
-                :let [n (node->str node)]]
-            (ant/select-option {:value n} n)))
-         " "
+      (c/ws-listener
+       {:value "coordinator-acceptors"
+        :on-value-change #(reset! *coordinator-acceptors nil)
+        :connect
+        #(c/connect-ws simulator (<< "/db/coordinator-acceptors"))
+        :on-message #(reset! *coordinator-acceptors %)})
+      (c/ws-listener
+       {:value "coordinators"
+        :on-value-change #(reset! *coordinators nil)
+        :connect
+        #(c/connect-ws simulator (<< "/db/coordinators"))
+        :on-message #(reset! *coordinators %)})
+      [:div
+       (when (seq nodes)
+         [:.row
+          (ant/select
+           {:style {:width 200}
+            :value selected-node
+            :on-change (partial reset! *selected-node)}
+           (for [node (sort nodes)
+                 :let [n (node->str node)]]
+             (ant/select-option {:value n} n)))
+          " "
+          (ant/button {:type :primary
+                       :disabled (nil? selected-node)
+                       :on-click spawn-controller}
+                      "Spawn controller")])
+       (when (seq coordinator-acceptors)
          (ant/button {:type :primary
-                      :disabled (nil? selected-node)
-                      :on-click spawn}
-                     "Spawn controller")])])))
+                      :disabled (not (empty? coordinators))
+                      :on-click spawn-coordinators}
+                     "Spawn coordinators"))]])))
 
 (rum/defcs request-form
   < rum/reactive

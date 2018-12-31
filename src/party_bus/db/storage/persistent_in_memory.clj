@@ -141,6 +141,9 @@
           (commute write-queue conj [mutations d])
           d))
 
+      (snapshot [this]
+        (sc/snapshot ims))
+
       (controller [this p]
         (md/finally'
          (md/loop [^File
@@ -154,7 +157,7 @@
                    ;;holds read lock of write-queue during creation a snapshot
                   (let [wqueue (ensure write-queue)
                         snapshot (when compaction?
-                                   (sc/controller ims nil))]
+                                   (sc/snapshot ims))]
                     (ref-set write-queue [])
                     [snapshot wqueue]))]
 

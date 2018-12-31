@@ -47,5 +47,8 @@
       (end-transaction [this changed-keys]
         (md/success-deferred true))
 
-      (controller [this _]
-        (map-vals deref @storage)))))
+      (snapshot [this]
+        (dosync
+         (map-vals deref @storage)))
+
+      (controller [this _]))))

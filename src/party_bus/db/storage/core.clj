@@ -17,6 +17,7 @@
     [this test key options]
     [this start-test start-key end-test end-key options])
   (end-transaction [this changed-keys])
+  (snapshot [this])
   (controller [this p]))
 
 (defprotocol Transaction
@@ -86,3 +87,5 @@
 
 (defn illegal-state! [^String msg]
   (throw (IllegalStateException. msg)))
+
+(def coordinator-group "coordinator")

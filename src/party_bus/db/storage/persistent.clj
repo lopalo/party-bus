@@ -2,7 +2,7 @@
   (:require [clojure.java.io :as io]
             [clojure.data.avl :as avl]
             [medley.core :refer [map-vals filter-vals]]
-            [manifold [deferred :as md]]
+            [manifold.deferred :as md]
             [taoensso.nippy :as n]
             [party-bus.core :as c]
             [party-bus.cluster
@@ -124,7 +124,7 @@
         value-pages (count-pages values value-page-size)
         [occupancy key-freelist val-freelist]
         (loop [key-page 0
-               occupancy (transient {})
+               occupancy (transient (avl/sorted-map))
                key-freelist (transient (avl/sorted-set))
                val-freelist (-> value-pages range set transient)]
           (let [key-bs (byte-array key-page-size)
@@ -290,10 +290,10 @@
         (sc/del-value ims key))
 
       (get-key-range [this test key options]
-        (let [{o :occupancy} ((if (:ensure-keys? options) ensure deref) *files)]
+        (let [{o :occupancy} ((if (:ensure-keys? options) ensure deref) *pages)]
           (map first (subseq o test key))))
       (get-key-range [this start-test start-key end-test end-key options]
-        (let [{o :occupancy} ((if (:ensure-keys? options) ensure deref) *files)]
+        (let [{o :occupancy} ((if (:ensure-keys? options) ensure deref) *pages)]
           (map first (subseq o start-test start-key end-test end-key))))
 
       (end-transaction [this changed-keys]
@@ -344,6 +344,9 @@
                         (update :values merge vals-mutations)
                         (update :deferreds conj d)))
           d))
+
+      (snapshot [this]
+        (-> *pages deref :occupancy keys set))
 
       (controller [this p]
         (p/spawn

@@ -44,15 +44,15 @@
                                     (:remote-node-addresses options)
                                     service-specs)
         paxos (paxos/init-state (derived-atom [config] :paxos :paxos))
-        db (db/init-state (derived-atom [config] :db :db))]
+        db (db/init-state (derived-atom [config] :db :db) cluster)]
     (future (watch-config config-src config))
     (->State config (:connect-addresses options) dht cluster paxos db)))
 
 (defn- destroy-state [{:keys [dht cluster paxos db config]}]
-  (dht/destroy-state dht)
-  (cluster/destroy-state cluster)
-  (paxos/destroy-state paxos)
   (db/destroy-state db)
+  (paxos/destroy-state paxos)
+  (cluster/destroy-state cluster)
+  (dht/destroy-state dht)
   (reset! config nil))
 
 (defn- make-handler [{:keys [connect-addresses dht cluster paxos db]}]

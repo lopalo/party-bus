@@ -237,24 +237,24 @@
         (spawn this f nil))
       (spawn [this f options]
         (terminated?!)
-        (let [ch-num (md/deferred)
+        (let [ch-pid (md/deferred (.executor node))
               ch-proc
               (spawn-process node
                              (fn [p]
-                               (md/success! ch-num
-                                            (.number ^ProcessId (get-pid p)))
+                               (md/success! ch-pid (get-pid p))
                                (f p))
                              (dissoc options :bound?))]
-          (when (and (:bound? options) ch-proc)
-            (md/chain'
-             ch-num
-             (fn [child-number]
-               (let [bound-numbers (swap! (.bound-numbers proc)
-                                          #(when % (conj % child-number)))]
-                 (when-not (contains? bound-numbers child-number)
-                   (cc/kill node child-number)
-                   (throw cc/terminated-error)))))))
-        true)
+          (when ch-proc
+            (when (:bound? options)
+              (md/chain'
+               ch-pid
+               (fn [child-pid]
+                 (let [child-num (.number ^ProcessId child-pid)
+                       bound-numbers (swap! (.bound-numbers proc)
+                                            #(when % (conj % child-num)))]
+                   (when-not (contains? bound-numbers child-num)
+                     (cc/kill node child-num))))))
+            ch-pid)))
 
       (terminate [this]
         (throw cc/terminated-error))

@@ -40,5 +40,35 @@
                                    :value-page-size 512
                                    :write-period 1000
                                    :working-set-capactity 1000
-                                   :eviction-period 1000}}}}}
+                                   :eviction-period 1000}}
+                   :baz {:storage :replicated
+                         :source "resources/db/baz"
+                         :create? true
+                         :options {:label "binary-star"
+                                   :max-queue-size 200
+                                   :max-replication-lag 300000
+                                   :initial-pull-timeout 3000
+                                   :pull-timeout 1000
+                                   :replication-period 500
+                                   :keys-history 100
+                                   :value-history 20
+                                   :log-write-period 100
+                                   :log-compaction-size 104857600}}
+                   :qux {:storage :replicated
+                         :source "resources/db/qux"
+                         :create? true
+                         :options {:label "binary-star"
+                                   :max-queue-size 200
+                                   :initial-pull-timeout 3000
+                                   :pull-timeout 1000
+                                   :replication-period 500
+                                   :max-replication-lag 300000
+                                   :keys-history 100
+                                   :value-history 20
+                                   :log-write-period 100
+                                   :log-compaction-size 104857600}}}
+
+      :coordinator {:election-pause 4000
+                    :round-pause [1000 2500]
+                    :request-timeout 1000}}}
 

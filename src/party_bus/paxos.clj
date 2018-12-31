@@ -85,7 +85,6 @@
                (p/spawn p #(proposer % params))
                (p/terminate p)))])
     (p/add-to-group p (gr proposer-group group-suffix))
-    (p/watch-group p acceptor-gr)
     (=> (u/sleep p election-pause))
     (=> (md/loop []
           (when (or (seq (p/get-group-members p leader-gr))
@@ -126,6 +125,10 @@
               (restart next-proposal-number))
             [elector-pids proposal-number]))
         [elector-pids proposal-number])
+    (let> [acceptor-pids' (p/watch-group p acceptor-gr)
+           elector-pids (intersection elector-pids acceptor-pids')])
+    (when-not (valid? elector-pids)
+      (restart proposal-number))
     (p/add-to-group p leader-gr)
     (p/spawn p #(leader-process % proposal-number) {:bound? true})
     (=> (md/loop [elector-pids elector-pids]
