@@ -14,15 +14,10 @@
 
 (def ^:private meta-key "*meta*")
 
-(def ^:private ks :key-space)
-
-(defn- run-transaction [pims f & args]
-  (apply sc/run-transaction {ks pims} f args))
-
 (defn- update-meta [tx f & args]
-  (let [m (sc/get-val tx ks meta-key)
+  (let [m (sc/get-val' tx meta-key)
         m' (apply f m args)]
-    (sc/set-val tx ks meta-key m')))
+    (sc/set-val' tx meta-key m')))
 
 (defn- replicator
   [p pims *source-pid
@@ -43,19 +38,19 @@
            :else (do (u/sleep-recur p replication-period
                                     pull-timeout ts' position)))
       (if> (not= response :timeout)
-           :else (do (run-transaction pims update-meta update
-                                      :replication-lag + lag)
+           :else (do (sc/run-transaction' pims update-meta update
+                                          :replication-lag + lag)
                      (u/sleep-recur p replication-period
                                     initial-pull-timeout ts' position)))
-      (=> (run-transaction
+      (=> (sc/run-transaction'
            pims
            (fn [tx]
              (update-meta tx assoc :replication-lag lag)
              (doseq [m (:mutations response)
                      [k v] m]
                (if (some? v)
-                 (sc/set-val tx ks k v)
-                 (sc/del-val tx ks k))))))
+                 (sc/set-val' tx k v)
+                 (sc/del-val' tx k))))))
       (u/sleep-recur p replication-period
                      pull-timeout ts' (:position response)))))
 
@@ -73,14 +68,14 @@
     (reify sc/Storage
       (initialize [this source create?]
         (sc/initialize pims source create?)
-        (run-transaction pims update-meta
-                         (fn [m]
-                           (if-not m
-                             {:label label
-                              :replication-lag Long/MAX_VALUE}
-                             (do
-                               (assert (= label (:label m)) label)
-                               m)))))
+        (sc/run-transaction' pims update-meta
+                             (fn [m]
+                               (if-not m
+                                 {:label label
+                                  :replication-lag Long/MAX_VALUE}
+                                 (do
+                                   (assert (= label (:label m)) label)
+                                   m)))))
       (get-value [this key options]
         (sc/get-value pims key options))
 
@@ -133,8 +128,8 @@
                   (reset! coordinator-pid sender-pid)
                   (reset! *source-pid source-pid)
                   (when-not source-pid
-                    (run-transaction pims update-meta
-                                     assoc :replication-lag 0))))
+                    (sc/run-transaction' pims update-meta
+                                         assoc :replication-lag 0))))
               :group-change
               (let [{:keys [pid deleted?]} body]
                 (when (and deleted? (= pid @coordinator-pid))

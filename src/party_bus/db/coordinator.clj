@@ -28,23 +28,26 @@
                (when (:pid replica)
                  (p/send-to p (:pid replica) "configure"
                             {:epoch epoch :source-pid (:pid source)}))))])
-    (doseq [[label pair] (->> res
-                              (map #(assoc (second %) :pid (first %)))
-                              (group-by :label))]
-      (case (count pair)
-        0 nil
-        1 (configure (first pair) nil)
-        2 (let [[s s'] pair
-                rl (:replication-lag s)
-                rl' (:replication-lag s')]
-            (cond
-              (= rl rl')
-              (configure (assoc s :replication-lag 0) s')
-              (< rl rl')
-              (configure s s')
-              :else
-              (configure s' s)))
-        (error-logger (format "Too many storages with label '%s'" label))))))
+    (->> res
+         (map #(assoc (second %) :pid (first %)))
+         (group-by :label)
+         (run! (fn [[label pair]]
+                 (case (count pair)
+                   0 nil
+                   1 (configure (first pair) nil)
+                   2 (let [[s s'] pair
+                           rl (:replication-lag s)
+                           rl' (:replication-lag s')]
+                       (cond
+                         (= rl rl')
+                         (configure (assoc s :replication-lag 0) s')
+                         (< rl rl')
+                         (configure s s')
+                         :else
+                         (configure s' s)))
+                   (->> label
+                        (format "Too many storages with label '%s'")
+                        error-logger)))))))
 
 (defn- coordinator* [p epoch error-logger]
   (p/add-to-group p coordinator-group)

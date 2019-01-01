@@ -290,31 +290,31 @@
                                  (atom #{}))]
      (when (swap! processes assoc number proc)
        (ex/with-executor executor
-         (md/finally'
-          (md/catch'
-           (md/chain' (md/future-with executor
-                                      (f (process-interface node pid proc))))
-           #(when-not (= (-> % ex-data :reason) cc/terminated)
-              ((:exception-handler options) %)))
-          (fn []
-            (swap! processes dissoc number)
-            (reset! (.mailbox proc) nil)
-            (let [groups (cc/delete-member node pid)
-                  watched-groups (deref-reset! (.watched-groups proc) nil)
-                  corked-nodes (deref-reset! (.corked-nodes proc) nil)
-                  bound-numbers (deref-reset! (.bound-numbers proc) nil)]
-              (when (seq groups)
-                (t/broadcast transport {:type :delete-from-all-groups
-                                        :process-number number}))
-              (when (seq watched-groups)
-                (cc/delete-watcher node number watched-groups))
-              (doseq [endpoint corked-nodes]
-                (t/send-to transport
-                           endpoint
-                           {:type :uncork
-                            :process-number number}))
-              (doseq [number bound-numbers]
-                (cc/kill node number))))))))))
+         (-> (md/future-with executor (f (process-interface node pid proc)))
+             md/chain'
+             (md/catch'
+              #(when-not (cc/terminated-error? %)
+                 ((:exception-handler options) %)))
+             (md/finally'
+              (fn []
+                (swap! processes dissoc number)
+                (reset! (.mailbox proc) nil)
+                (let [groups (cc/delete-member node pid)
+                      watched-groups (deref-reset! (.watched-groups proc) nil)
+                      corked-nodes (deref-reset! (.corked-nodes proc) nil)
+                      bound-numbers (deref-reset! (.bound-numbers proc) nil)]
+                  (when (seq groups)
+                    (t/broadcast transport {:type :delete-from-all-groups
+                                            :process-number number}))
+                  (when (seq watched-groups)
+                    (cc/delete-watcher node number watched-groups))
+                  (doseq [endpoint corked-nodes]
+                    (t/send-to transport
+                               endpoint
+                               {:type :uncork
+                                :process-number number}))
+                  (doseq [number bound-numbers]
+                    (cc/kill node number)))))))))))
 
 (defn add-to-group [p group]
   (get (add-to-groups p [group]) group))

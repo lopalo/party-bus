@@ -2,6 +2,7 @@
   (:require [medley.core :refer [map-vals]]
             [manifold.deferred :as md]
             [party-bus.cluster
+             [core :as cc]
              [process :as p]
              [util :as u]]
             [party-bus.db.storage
@@ -42,13 +43,23 @@
        (sc/set-val tx key-space key' v)
        true))})
 
-(defn- worker [p {:keys [handlers key-spaces]} _ [_ body :as msg]]
-  (md/chain'
-   (sc/run-transaction key-spaces (handlers (u/msg-type msg)) body)
-   (partial u/response p msg)))
+(defn- worker
+  [p {:keys [handlers transaction-timeout key-spaces]} _ [_ body :as msg]]
+  (-> (sc/run-transaction key-spaces (handlers (u/msg-type msg)) body)
+      (try
+        (catch Throwable e
+          (when (cc/terminated-error? e)
+            (throw e))
+          (md/success-deferred (.getMessage e))))
+      (md/timeout! transaction-timeout ::transaction-timeout)
+      (md/chain' (partial u/response p msg))))
 
 (defn controller
-  [p {:keys [handlers key-spaces worker-amount worker-groups]}]
+  [p {:keys [handlers
+             key-spaces
+             worker-amount
+             transaction-timeout
+             worker-groups]}]
   (let [key-spaces
         (map-vals (fn [{:keys [storage source create? options]}]
                     (let [s ((case storage
@@ -64,6 +75,7 @@
                       s))
                   key-spaces)
         worker-params {:key-spaces key-spaces
+                       :transaction-timeout transaction-timeout
                        :handlers handlers}]
     (dotimes [_ worker-amount]
       (p/spawn p

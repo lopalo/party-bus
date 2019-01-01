@@ -41,6 +41,9 @@
 (def terminated-error
   (ex-info "Process is terminated" {:reason terminated}))
 
+(defn terminated-error? [e]
+  (= (-> e ex-data :reason) terminated))
+
 (defn min-pid [endpoint]
   (ProcessId. endpoint 0))
 

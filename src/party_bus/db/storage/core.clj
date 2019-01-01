@@ -75,6 +75,57 @@
      (apply md/zip' deferreds)
      (constantly result))))
 
+(defprotocol SingleStorageTransaction
+  (get-val'
+    [this key]
+    [this key options])
+  (get-keys'
+    [this test key]
+    [this test key options]
+    [this start-test start-key end-test end-key]
+    [this start-test start-key end-test end-key options])
+  (set-val'
+    [this key value]
+    [this key value options])
+  (del-val' [this key]))
+
+(defn run-transaction' [storage f & args]
+  (let [modified-keys (atom #{})
+        tx
+        (reify SingleStorageTransaction
+          (get-val' [this key]
+            (get-val' this key nil))
+          (get-val' [this key options]
+            (get-value storage key options))
+
+          (get-keys' [this test key]
+            (get-keys' this test key nil))
+          (get-keys' [this test key options]
+            (get-key-range storage test key options))
+          (get-keys' [this start-test start-key end-test end-key]
+            (get-keys' this start-test start-key end-test end-key nil))
+          (get-keys'
+            [this start-test start-key end-test end-key options]
+            (get-key-range storage
+                           start-test start-key end-test end-key
+                           options))
+
+          (set-val' [this key value]
+            (set-val' this key value nil))
+          (set-val' [this key value options]
+            (swap! modified-keys conj key)
+            (set-value storage key value options))
+
+          (del-val' [this key]
+            (swap! modified-keys conj key)
+            (del-value storage key)))
+        [result deferred]
+        (dosync
+         (reset! modified-keys #{})
+         [(apply f tx args)
+          (end-transaction storage @modified-keys)])]
+    (md/chain' deferred (constantly result))))
+
 (defn lock-dir [directory]
   (let [file (io/file directory "lock")]
     (try

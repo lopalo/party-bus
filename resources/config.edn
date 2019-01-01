@@ -67,7 +67,7 @@
                                    :value-history 20
                                    :log-write-period 100
                                    :log-compaction-size 104857600}}}
-
+      :transaction-timeout 4000
       :coordinator {:election-pause 4000
                     :round-pause [1000 2500]
                     :request-timeout 1000}}}
