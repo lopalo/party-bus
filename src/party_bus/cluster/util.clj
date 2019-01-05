@@ -1,5 +1,5 @@
 (ns party-bus.cluster.util
-  (:require [clojure.string :refer [split]]
+  (:require [clojure.string :refer [split starts-with?]]
             [manifold.deferred :as md]
             [party-bus.core :as c :refer [flow => let> if>]]
             [party-bus.cluster.process :as p]))
@@ -70,5 +70,7 @@
   (md/loop [state initial-state]
     (md/chain' (p/receive p)
                (fn [msg]
-                 (md/recur (handler p params state msg))))))
-
+                 (if (-> msg first (starts-with? "response:"))
+                   state
+                   (handler p params state msg)))
+               md/recur)))

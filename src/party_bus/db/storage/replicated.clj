@@ -1,5 +1,6 @@
 (ns party-bus.db.storage.replicated
   (:require [clojure.string :refer [blank?]]
+            [clojure.set :refer [difference]]
             [amalloy.ring-buffer :refer [ring-buffer]]
             [manifold [deferred :as md]]
             [party-bus.core :as c :refer [flow => if> let>]]
@@ -20,7 +21,7 @@
     (sc/set-val' tx meta-key m')))
 
 (defn- replicator
-  [p pims *source-pid
+  [p pims *source-pid *replication-lag
    {:keys [initial-pull-timeout pull-timeout replication-period]}]
   (md/loop [timeout initial-pull-timeout
             ts (c/now-ms)
@@ -38,14 +39,21 @@
            :else (do (u/sleep-recur p replication-period
                                     pull-timeout ts' position)))
       (if> (not= response :timeout)
-           :else (do (sc/run-transaction' pims update-meta update
-                                          :replication-lag + lag)
+           :else (do (swap! *replication-lag + lag)
                      (u/sleep-recur p replication-period
                                     initial-pull-timeout ts' position)))
+      (reset! *replication-lag lag)
       (=> (sc/run-transaction'
            pims
            (fn [tx]
-             (update-meta tx assoc :replication-lag lag)
+             (when-let [snapshot (:snapshot response)]
+               (let [ks (set (sc/get-keys' tx >= "" {:ensure-keys? true}))
+                     ks' (set (keys snapshot))]
+                 (doseq [k (difference ks ks')
+                         :when (not= k meta-key)]
+                   (sc/del-val' tx k))
+                 (doseq [[k v] snapshot]
+                   (sc/set-val' tx k v))))
              (doseq [m (:mutations response)
                      [k v] m]
                (if (some? v)
@@ -59,12 +67,14 @@
     :as options}]
   {:pre [(not (blank? label))]}
   (let [pims (pims/storage options)
-        coordinator-pid (atom nil)
+        *coordinator-pid (atom nil)
         *epoch (atom 0)
+        *replicator-pid (atom nil)
         *source-pid (atom nil)
+        *replication-lag (atom 0)
         position (ref 0)
         replication-queue (ref (ring-buffer max-queue-size))
-        writable? #(and @coordinator-pid (not @*source-pid))]
+        writable? #(and @*coordinator-pid (not @*source-pid))]
     (reify sc/Storage
       (initialize [this source create?]
         (sc/initialize pims source create?)
@@ -72,7 +82,7 @@
                              (fn [m]
                                (if-not m
                                  {:label label
-                                  :replication-lag Long/MAX_VALUE}
+                                  :promotion 0}
                                  (do
                                    (assert (= label (:label m)) label)
                                    m)))))
@@ -110,7 +120,9 @@
 
       (controller [this p]
         (p/spawn p (partial sc/controller pims) {:bound? true})
-        (p/spawn p #(replicator % pims *source-pid options) {:bound? true})
+        (p/spawn p
+                 #(replicator % pims *source-pid *replication-lag options)
+                 {:bound? true})
         (p/watch-group p sc/coordinator-group)
         (p/add-to-group p group)
         (md/loop []
@@ -118,22 +130,28 @@
             (=> (p/receive p) [_ body sender-pid :as msg])
             (case (u/msg-type msg)
               :get-meta
-              (u/response p msg (assoc (sc/get-value pims meta-key nil)
-                                       :max-replication-lag
-                                       max-replication-lag))
-              :configure
+              (u/response p msg (sc/get-value pims meta-key nil))
+              :promote
+              (let [{:keys [epoch promotion]} body]
+                (when (and (>= epoch @*epoch)
+                           (<= @*replication-lag max-replication-lag))
+                  (reset! *epoch epoch)
+                  (reset! *coordinator-pid sender-pid)
+                  (reset! *replication-lag 0)
+                  (reset! *source-pid nil)
+                  (sc/run-transaction' pims update-meta
+                                       assoc :promotion promotion)))
+              :setup-replication
               (let [{:keys [epoch source-pid]} body]
                 (when (>= epoch @*epoch)
                   (reset! *epoch epoch)
-                  (reset! coordinator-pid sender-pid)
-                  (reset! *source-pid source-pid)
-                  (when-not source-pid
-                    (sc/run-transaction' pims update-meta
-                                         assoc :replication-lag 0))))
+                  (reset! *coordinator-pid sender-pid)
+                  (reset! *replication-lag Long/MAX_VALUE)
+                  (reset! *source-pid source-pid)))
               :group-change
               (let [{:keys [pid deleted?]} body]
-                (when (and deleted? (= pid @coordinator-pid))
-                  (reset! coordinator-pid nil)))
+                (when (and deleted? (= pid @*coordinator-pid))
+                  (reset! *coordinator-pid nil)))
               :pull-changes
               (if (writable?)
                 (let [pos body
@@ -143,11 +161,15 @@
                        (let [pos' (ensure position)
                              rqueue (ensure replication-queue)
                              ack-amount (- (count rqueue) (- pos' (or pos 0)))
-                             full-sync? (or (nil? pos) (neg? ack-amount))]
+                             full-sync? (or (not= @*replicator-pid sender-pid)
+                                            (nil? pos)
+                                            (neg? ack-amount))]
                          (if full-sync?
-                           [()
-                            {:mutations [(dissoc (sc/snapshot pims) meta-key)]
-                             :position pos'}]
+                           (do
+                             (reset! *replicator-pid sender-pid)
+                             [()
+                              {:snapshot (dissoc (sc/snapshot pims) meta-key)
+                               :position pos'}])
                            (do
                              (ref-set replication-queue
                                       (reduce (fn [q _] (pop q))

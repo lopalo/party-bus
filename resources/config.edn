@@ -60,7 +60,7 @@
                          :options {:label "binary-star"
                                    :max-queue-size 200
                                    :initial-pull-timeout 3000
-                                   :pull-timeout 1000
+                                   :pull-timeout 600
                                    :replication-period 500
                                    :max-replication-lag 300000
                                    :keys-history 100
