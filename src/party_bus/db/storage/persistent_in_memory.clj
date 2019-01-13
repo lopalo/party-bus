@@ -131,9 +131,9 @@
       (get-key-range [this start-test start-key end-test end-key options]
         (sc/get-key-range ims start-test start-key end-test end-key options))
 
-      (end-transaction [this changed-keys]
+      (end-transaction [this modified-keys]
         (let [d (md/deferred)
-              mutations (->> changed-keys
+              mutations (->> modified-keys
                              (map
                               (fn [k]
                                 [k (sc/get-value ims k nil)]))

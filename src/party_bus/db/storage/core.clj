@@ -16,7 +16,7 @@
   (get-key-range
     [this test key options]
     [this start-test start-key end-test end-key options])
-  (end-transaction [this changed-keys])
+  (end-transaction [this modified-keys])
   (snapshot [this])
   (controller [this p]))
 
@@ -35,7 +35,7 @@
   (del-val [this key-space key]))
 
 (defn run-transaction [key-spaces f & args]
-  (let [modified-keys (atom {})
+  (let [modified-keys (ref {})
         tx
         (reify Transaction
           (get-val [this key-space key]
@@ -58,15 +58,14 @@
           (set-val [this key-space key value]
             (set-val this key-space key value nil))
           (set-val [this key-space key value options]
-            (swap! modified-keys update key-space c/set-conj key)
+            (alter modified-keys update key-space c/set-conj key)
             (set-value (key-spaces key-space) key value options))
 
           (del-val [this key-space key]
-            (swap! modified-keys update key-space c/set-conj key)
+            (alter modified-keys update key-space c/set-conj key)
             (del-value (key-spaces key-space) key)))
         [result deferreds]
         (dosync
-         (reset! modified-keys {})
          [(apply f tx args)
           (doall
            (for [[key-space ks] @modified-keys]
@@ -90,7 +89,7 @@
   (del-val' [this key]))
 
 (defn run-transaction' [storage f & args]
-  (let [modified-keys (atom #{})
+  (let [modified-keys (ref #{})
         tx
         (reify SingleStorageTransaction
           (get-val' [this key]
@@ -113,17 +112,18 @@
           (set-val' [this key value]
             (set-val' this key value nil))
           (set-val' [this key value options]
-            (swap! modified-keys conj key)
+            (alter modified-keys conj key)
             (set-value storage key value options))
 
           (del-val' [this key]
-            (swap! modified-keys conj key)
+            (alter modified-keys conj key)
             (del-value storage key)))
         [result deferred]
         (dosync
-         (reset! modified-keys #{})
          [(apply f tx args)
-          (end-transaction storage @modified-keys)])]
+          (if (seq @modified-keys)
+            (end-transaction storage @modified-keys)
+            (md/success-deferred true))])]
     (md/chain' deferred (constantly result))))
 
 (defn lock-dir [directory]

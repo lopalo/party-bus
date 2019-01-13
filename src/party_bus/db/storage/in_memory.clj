@@ -44,7 +44,7 @@
         (let [strg ((if (:ensure-keys? options) ensure deref) storage)]
           (map first (subseq strg start-test start-key end-test end-key))))
 
-      (end-transaction [this changed-keys]
+      (end-transaction [this modified-keys]
         (md/success-deferred true))
 
       (snapshot [this]

@@ -296,9 +296,9 @@
         (let [{o :occupancy} ((if (:ensure-keys? options) ensure deref) *pages)]
           (map first (subseq o start-test start-key end-test end-key))))
 
-      (end-transaction [this changed-keys]
+      (end-transaction [this modified-keys]
         (let [d (md/deferred)
-              mutations (->> changed-keys
+              mutations (->> modified-keys
                              (map
                               (fn [k]
                                 [k (sc/get-value ims k nil)]))
@@ -306,7 +306,7 @@
               pages (ensure *pages)
               occupancy (:occupancy pages)
               keys-mutations
-              (->> changed-keys
+              (->> modified-keys
                    (keep
                     (fn [k]
                       (when-let [o (occupancy k)]
@@ -320,7 +320,7 @@
                           [(:key-page o) bs]))))
                    (into {}))
               vals-mutations
-              (->> changed-keys
+              (->> modified-keys
                    (keep
                     (fn [k]
                       (when-let [o (occupancy k)]

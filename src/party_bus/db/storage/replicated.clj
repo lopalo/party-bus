@@ -77,15 +77,18 @@
         writable? #(and @*coordinator-pid (not @*source-pid))]
     (reify sc/Storage
       (initialize [this source create?]
-        (sc/initialize pims source create?)
-        (sc/run-transaction' pims update-meta
-                             (fn [m]
-                               (if-not m
-                                 {:label label
-                                  :promotion 0}
-                                 (do
-                                   (assert (= label (:label m)) label)
-                                   m)))))
+        (if (sc/initialize pims source create?)
+          (do
+            (sc/run-transaction' pims update-meta
+                                 (fn [m]
+                                   (if-not m
+                                     {:label label
+                                      :promotion 0}
+                                     (do
+                                       (assert (= label (:label m)) label)
+                                       m))))
+            true)
+          false))
       (get-value [this key options]
         (sc/get-value pims key options))
 
@@ -104,16 +107,16 @@
       (get-key-range [this start-test start-key end-test end-key options]
         (sc/get-key-range pims start-test start-key end-test end-key options))
 
-      (end-transaction [this changed-keys]
+      (end-transaction [this modified-keys]
         (let [d (md/deferred)
-              mutations (->> changed-keys
+              mutations (->> modified-keys
                              (map
                               (fn [k]
                                 [k (sc/get-value pims k nil)]))
                              (into {}))]
           (commute position inc)
           (commute replication-queue conj [mutations d])
-          (md/chain' (sc/end-transaction pims changed-keys) (constantly d))))
+          (md/chain' (sc/end-transaction pims modified-keys) (constantly d))))
 
       (snapshot [this]
         (sc/snapshot pims))
@@ -146,7 +149,7 @@
                 (when (>= epoch @*epoch)
                   (reset! *epoch epoch)
                   (reset! *coordinator-pid sender-pid)
-                  (reset! *replication-lag Long/MAX_VALUE)
+                  (reset! *replication-lag (* 2 max-replication-lag))
                   (reset! *source-pid source-pid)))
               :group-change
               (let [{:keys [pid deleted?]} body]
